@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>汉字图片选择工具</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>汉字图片选择工具</h1>
+            <div class="folder-section">
+                <button id="selectFolder">选择字体图片文件夹</button>
+                <div id="folderPath" class="folder-path" title="未选择文件夹">未选择文件夹</div>
+            </div>
+        </header>
+        
+        <main>
+            <textarea id="inputText" 
+                      placeholder="请输入要查找的汉字...&#10;（仅处理中文字符，自动忽略其他字符）"
+                      maxlength="1000"></textarea>
+            <div id="preview" class="preview-grid"></div>
+        </main>
+        
+        <footer>
+            <button id="exportBtn" disabled>导出所有图片</button>
+        </footer>
+    </div>
+    <script src="index.js"></script>
+</body>
+</html> 
