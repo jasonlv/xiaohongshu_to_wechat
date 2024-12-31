@@ -28,8 +28,8 @@ app.use((req, res, next) => {
 });
 
 // 修改静态文件服务配置
+app.use(express.static(path.join(__dirname, '../public')));
 app.use('/client', express.static(path.join(__dirname, '../client')));
-app.use('/', express.static(path.join(__dirname, '../')));
 
 // 添加错误恢复中间件
 app.use((req, res, next) => {

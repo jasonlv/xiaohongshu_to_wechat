@@ -501,4 +501,9 @@ document.addEventListener('DOMContentLoaded', () => {
             e.stopPropagation();
         }
     });
-}); 
+});
+
+// 根据环境设置 API 地址
+const API_BASE_URL = window.location.hostname === 'localhost' 
+    ? 'http://localhost:8080'
+    : `https://${window.location.hostname}`;  // 使用当前域名 
