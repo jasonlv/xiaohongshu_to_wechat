@@ -526,39 +526,40 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// 修改图片代理路由
+// 修改图片代理路由，添加更多调试信息
 app.get('/api/proxy-image', async (req, res) => {
     const { url } = req.query;
     
     if (!url) {
-        console.error('缺少图片URL参数');
         return res.status(400).send('Missing URL parameter');
     }
 
     try {
-        console.log('正在代理图片:', url);
-        const decodedUrl = decodeURIComponent(url);
+        // 使用 crawler 的 page 对象来获取图片
+        const page = crawler.page;
+        if (!page) {
+            throw new Error('Browser not initialized');
+        }
 
-        const response = await axios({
-            method: 'get',
-            url: decodedUrl,
-            headers: {
-                'Referer': 'https://www.xiaohongshu.com',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Cookie': 'xsecappid=xhs-pc-web',
-                'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
-                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
-            },
-            responseType: 'arraybuffer'
-        });
+        // 使用 page 的上下文获取图片
+        const response = await page.evaluate(async (imageUrl) => {
+            const response = await fetch(imageUrl, {
+                credentials: 'include'  // 包含 cookies
+            });
+            const buffer = await response.arrayBuffer();
+            return Array.from(new Uint8Array(buffer));
+        }, decodeURIComponent(url));
+
+        // 转换回 Buffer
+        const buffer = Buffer.from(response);
 
         res.set({
-            'Content-Type': response.headers['content-type'] || 'image/jpeg',
+            'Content-Type': 'image/jpeg',
             'Cache-Control': 'public, max-age=31536000',
             'Access-Control-Allow-Origin': '*'
         });
 
-        res.send(response.data);
+        res.send(buffer);
 
     } catch (error) {
         console.error('代理图片失败:', error);
