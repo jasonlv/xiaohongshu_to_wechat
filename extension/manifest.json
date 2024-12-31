@@ -10,7 +10,8 @@
     "downloads"
   ],
   "host_permissions": [
-    "https://*.xiaohongshu.com/*"
+    "https://*.xiaohongshu.com/*",
+    "https://*.xhscdn.com/*"
   ],
   "action": {
     "default_popup": "popup.html"
