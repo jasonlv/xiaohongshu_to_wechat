@@ -107,11 +107,12 @@ class XiaohongshuCrawler {
         try {
             if (!this.browser) {
                 this.browser = await puppeteer.launch({
-                    headless: 'new',  // 使用无头模式
+                    headless: 'new',
                     args: [
                         '--no-sandbox',
                         '--disable-setuid-sandbox',
-                        '--window-size=1920,1080'
+                        '--disable-dev-shm-usage',
+                        '--single-process'
                     ]
                 });
             }
