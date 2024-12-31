@@ -111,8 +111,7 @@ class XiaohongshuCrawler {
                     args: [
                         '--no-sandbox',
                         '--disable-setuid-sandbox',
-                        '--disable-dev-shm-usage',
-                        '--single-process'
+                        '--disable-dev-shm-usage'
                     ]
                 });
             }
@@ -120,6 +119,10 @@ class XiaohongshuCrawler {
             if (!this.page) {
                 this.page = await this.browser.newPage();
                 await this.page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+                
+                // 设置页面超时
+                await this.page.setDefaultNavigationTimeout(60000);
+                await this.page.setDefaultTimeout(60000);
                 
                 // 如果有token，设置cookie
                 if (this.token) {

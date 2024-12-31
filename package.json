@@ -7,7 +7,7 @@
   },
   "scripts": {
     "start": "node server/app.js",
-    "build": "npm install --include=optional sharp",
+    "build": "npm install puppeteer && npm install --include=optional sharp",
     "dev": "nodemon server/app.js"
   },
   "dependencies": {
