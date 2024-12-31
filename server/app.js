@@ -689,45 +689,42 @@ app.post('/api/wechat/draft', async (req, res) => {
         }
 
         // 3. 处理文章内容
-        // 首先清理文本内容中的 HTML 标签，但保留换行
-        let textContent = article.content
-            .replace(/<[^>]+>/g, '') // 移除所有 HTML 标签
-            .split('\n')
-            .map(line => line.trim()) // 清理每行的首尾空格
-            .join('\n'); // 使用换行符重新连接，保留所有换行，包括空行
-
-        // 将文本内容转换为段落，保留所有换行
-        const paragraphs = textContent
-            .split('\n')
+        // 将纯文本内容转换为HTML格式，保留换行
+        let content = article.content
+            .split('\n')  // 按换行符分割
             .map(line => {
-                // 即使是空行也转换为段落，这样可以保持原文的段落间距
-                return `<p>${line || '<br/>'}</p>`;
+                // 如果是空行，返回一个换行标签
+                if (!line.trim()) {
+                    return '<p><br/></p>';
+                }
+                // 非空行，包装在段落标签中
+                return `<p>${line.trim()}</p>`;
             })
-            .join('\n'); // 使用换行符连接段落，增加可读性
+            .join('');  // 连接所有行
 
         // 在文本内容后面添加一个分隔空行
-        const separator = '<p><br/></p>';
+        content += '<p><br/></p>';
 
         // 在文本内容后面添加图片，确保有分隔
         const imagesHtml = uploadedImages
             .map(image => 
                 `<p style="text-align: center;"><img src="${image.url}" data-width="100%" style="max-width:100%;"></p>`
             )
-            .join('\n');
+            .join('');
 
-        // 组合最终的内容，确保文字和图片之间有足够的间距
-        const content = paragraphs + separator + imagesHtml;
+        // 组合最终的内容
+        content += imagesHtml;
 
         // 4. 创建草稿
         const draftData = {
             articles: [{
                 title: cleanedTitle,
-                author: '', // 作者留空
-                digest: textContent.slice(0, 120), // 使用清理后的文本作为摘要
+                author: '',
+                digest: article.content.slice(0, 120).replace(/\n/g, ' '), // 摘要中的换行替换为空格
                 content: content,
                 content_source_url: '',
                 thumb_media_id: uploadedImages[0].mediaId,
-                need_open_comment: 1,  // 修改为1，默认开启评论
+                need_open_comment: 1,
                 only_fans_can_comment: 0,
                 show_cover_pic: 1
             }]
