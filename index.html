@@ -1,35 +1,32 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>小红书笔记同步助手</title>
-    <link rel="stylesheet" href="styles.css">
+    <title>小红书笔记同步工具</title>
+    <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>小红书笔记同步助手</h1>
-            <div class="config-section">
-                <input type="text" id="xhsUrl" placeholder="请输入小红书笔记或用户主页链接" style="flex-grow: 1;">
-                <input type="text" id="wxAppId" placeholder="微信公众号AppID">
-                <input type="text" id="wxAppSecret" placeholder="微信公众号AppSecret">
-                <button id="saveConfig">保存配置</button>
-            </div>
-        </header>
+        <h1>小红书笔记同步工具</h1>
         
-        <main>
-            <div class="control-panel">
-                <button id="refreshNotes">获取笔记</button>
-                <span id="lastUpdate"></span>
-            </div>
-            
-            <div id="notesList" class="notes-list">
-                <!-- 笔记列表将在这里动态生成 -->
-            </div>
-        </main>
+        <!-- 配置区域 -->
+        <div class="config-section">
+            <input type="text" id="wxAppId" placeholder="微信公众号AppID">
+            <input type="text" id="wxAppSecret" placeholder="微信公众号AppSecret">
+            <button id="saveConfig">保存配置</button>
+        </div>
 
+        <!-- 笔记获取区域 -->
+        <div class="note-input-section">
+            <input type="text" id="noteUrl" placeholder="请输入小红书笔记链接">
+            <button id="fetchNote">获取笔记</button>
+        </div>
+
+        <!-- 笔记预览区域 -->
+        <div id="noteDetail" class="note-detail-container"></div>
+
+        <!-- 状态栏 -->
         <div id="statusBar" class="status-bar"></div>
     </div>
-    <script src="client/index.js"></script>
+    <script src="/client/index.js"></script>
 </body>
 </html> 

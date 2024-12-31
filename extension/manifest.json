@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "小红书笔记助手",
+  "version": "1.0",
+  "description": "获取小红书笔记内容",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://*.xiaohongshu.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.xiaohongshu.com/*"],
+      "js": ["content.js"]
+    }
+  ]
+} 
