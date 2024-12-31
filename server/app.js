@@ -513,9 +513,9 @@ app.post('/api/login', async (req, res) => {
 
 // 修改图片代理路由
 app.get('/api/proxy-image', async (req, res) => {
-        const { url } = req.query;
+    const { url } = req.query;
     
-        if (!url) {
+    if (!url) {
         console.error('缺少图片URL参数');
         return res.status(400).send('Missing URL parameter');
     }
@@ -524,49 +524,40 @@ app.get('/api/proxy-image', async (req, res) => {
         console.log('正在代理图片:', url);
         const decodedUrl = decodeURIComponent(url);
 
-        // 使用 axios 替代 fetch
         const response = await axios({
             method: 'get',
             url: decodedUrl,
             headers: {
                 'Referer': 'https://www.xiaohongshu.com',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Cookie': 'xsecappid=xhs-pc-web',
+                'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
                 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
             },
             responseType: 'arraybuffer'
         });
 
-        // 设置响应头
         res.set({
             'Content-Type': response.headers['content-type'] || 'image/jpeg',
             'Cache-Control': 'public, max-age=31536000',
             'Access-Control-Allow-Origin': '*'
         });
 
-        // 发送图片数据
         res.send(response.data);
 
     } catch (error) {
         console.error('代理图片失败:', error);
-        
-        // 返回一个默认的占位图片
-        res.set('Content-Type', 'image/svg+xml');
-        res.send(`
-            <svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
-                <rect width="200" height="200" fill="#f0f0f0"/>
-                <text x="50%" y="50%" text-anchor="middle" fill="#999">图片加载失败</text>
-            </svg>
-        `);
+        res.status(500).send('Error fetching image');
     }
 });
 
 // 错误处理中间件
 app.use((err, req, res, next) => {
     console.error('服务器错误:', err);
-    res.status(500).json({ 
-        message: '服务器内部错误',
-        error: err.message 
+    res.status(500).json({
+        success: false,
+        message: err.message,
+        stack: process.env.NODE_ENV === 'production' ? '🥞' : err.stack
     });
 });
 
