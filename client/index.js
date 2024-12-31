@@ -296,7 +296,7 @@ class App {
                                  onerror="this.onerror=null; this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 200 200%22><rect width=%22200%22 height=%22200%22 fill=%22%23f0f0f0%22/><text x=%22100%22 y=%22100%22 text-anchor=%22middle%22 fill=%22%23999%22>图片加载失败</text></svg>';">
                         </div>
                     `).join('')}
-                </div>
+            </div>
                 
                 <div class="publish-options">
                     <label class="option-item">

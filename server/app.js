@@ -5,6 +5,8 @@ const path = require('path');
 const timeout = require('connect-timeout');
 const axios = require('axios');
 const sharp = require('sharp');
+const { Readable } = require('stream');
+const FormData = require('form-data');
 
 const app = express();
 
@@ -507,9 +509,9 @@ app.post('/api/login', async (req, res) => {
 
 // 修改图片代理路由
 app.get('/api/proxy-image', async (req, res) => {
-    const { url } = req.query;
+        const { url } = req.query;
     
-    if (!url) {
+        if (!url) {
         console.error('缺少图片URL参数');
         return res.status(400).send('Missing URL parameter');
     }
@@ -589,38 +591,49 @@ app.post('/api/notes', async (req, res) => {
     }
 });
 
-// 修改微信公众号相关的路由
+// 添加一个辅助函数来清理文本
+function cleanText(text) {
+    return text
+        // 移除 emoji 表情符号
+        .replace(/[\u{1F300}-\u{1F9FF}]/gu, '')
+        // 移除其他特殊 Unicode 符号和表情
+        .replace(/[\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F100}-\u{1F1FF}\u{1F200}-\u{1F2FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}]/gu, '')
+        // 移除多余的空格和换行
+        .trim();
+}
+
+// 修改创建草稿的部分
 app.post('/api/wechat/draft', async (req, res) => {
     try {
         const { appId, appSecret, article } = req.body;
         
-        console.log('收到发布请求:', { appId, article: { title: article.title } });
+        // 清理标题中的 emoji
+        const cleanedTitle = cleanText(article.title);
+        
+        console.log('收到发布请求:', { 
+            appId, 
+            article: { 
+                title: cleanedTitle,
+                imageCount: article.images?.length || 0
+            }
+        });
 
-        // 1. 获取访问令牌
+        // 1. 获取 access_token
         const tokenUrl = `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${appId}&secret=${appSecret}`;
         const tokenResponse = await axios.get(tokenUrl);
-        
-        if (tokenResponse.data.errcode === 40164) {
-            throw new Error(`请在微信公众平台添加IP白名单：${tokenResponse.data.errmsg}`);
-        }
-
-        if (!tokenResponse.data.access_token) {
-            throw new Error(`获取访问令牌失败: ${JSON.stringify(tokenResponse.data)}`);
-        }
-
         const accessToken = tokenResponse.data.access_token;
+        console.log('获取到访问令牌:', accessToken);
 
-        // 2. 上传封面图片（如果有）
-        let thumbMediaId = '';
-        if (article.images && article.images.length > 0) {
-            const coverImage = article.images[0];
-            
+        // 2. 上传所有图片为永久素材
+        const uploadedImages = [];
+        for (const [index, image] of article.images.entries()) {
             try {
-                // 先下载图片
-                console.log('下载封面图片:', coverImage.url);
+                console.log(`开始上传第 ${index + 1} 张图片:`, image.url);
+                
+                // 下载图片
                 const imageResponse = await axios({
                     method: 'get',
-                    url: coverImage.url,
+                    url: image.url,
                     responseType: 'arraybuffer',
                     headers: {
                         'Referer': 'https://www.xiaohongshu.com',
@@ -628,8 +641,7 @@ app.post('/api/wechat/draft', async (req, res) => {
                     }
                 });
 
-                // 使用 sharp 转换图片格式为 JPEG
-                console.log('转换图片格式为JPEG');
+                // 使用 sharp 将图片转换为 jpg 格式
                 const jpegBuffer = await sharp(imageResponse.data)
                     .jpeg({
                         quality: 80,
@@ -637,146 +649,105 @@ app.post('/api/wechat/draft', async (req, res) => {
                     })
                     .toBuffer();
 
+                console.log(`第 ${index + 1} 张图片大小:`, (jpegBuffer.length/1024).toFixed(2) + 'KB');
+
                 // 创建 FormData
-                const FormData = require('form-data');
                 const formData = new FormData();
-                
-                // 添加转换后的图片到 FormData
                 formData.append('media', jpegBuffer, {
-                    filename: 'cover.jpg',
-                    contentType: 'image/jpeg',
-                    knownLength: jpegBuffer.length
+                    filename: `image${index + 1}.jpg`,
+                    contentType: 'image/jpeg'
                 });
 
-                // 上传到微信
-                const uploadUrl = `https://api.weixin.qq.com/cgi-bin/media/upload?access_token=${accessToken}&type=image`;
-                console.log('上传封面图片到微信');
-
-                const uploadResponse = await axios.post(uploadUrl, formData, {
-                    headers: {
-                        ...formData.getHeaders(),
-                        'Content-Length': formData.getLengthSync()
-                    },
-                    maxContentLength: Infinity,
-                    maxBodyLength: Infinity
-                });
-
-                console.log('封面图片上传响应:', uploadResponse.data);
-
-                if (uploadResponse.data.media_id) {
-                    thumbMediaId = uploadResponse.data.media_id;
-                    console.log('获取到封面图片 media_id:', thumbMediaId);
-                } else {
-                    throw new Error(`上传封面图片失败: ${JSON.stringify(uploadResponse.data)}`);
-                }
-            } catch (error) {
-                console.error('上传封面图片失败:', error);
-                throw new Error('上传封面图片失败，无法创建草稿');
-            }
-        } else {
-            throw new Error('文章必须包含至少一张图片作为封面');
-        }
-
-        // 3. 处理文章内容中的图片
-        let content = article.content;
-        if (article.images && article.images.length > 0) {
-            for (const image of article.images) {
-                try {
-                    // 下载图片
-                    const imageResponse = await axios({
-                        method: 'get',
-                        url: image.url,
-                        responseType: 'arraybuffer',
+                // 上传图片
+                const uploadResponse = await axios.post(
+                    `https://api.weixin.qq.com/cgi-bin/material/add_material?access_token=${accessToken}&type=image`,
+                    formData,
+                    { 
                         headers: {
-                            'Referer': 'https://www.xiaohongshu.com',
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                            ...formData.getHeaders(),
+                            'Content-Length': formData.getLengthSync()
                         }
-                    });
-
-                    // 转换图片格式为 JPEG
-                    const jpegBuffer = await sharp(imageResponse.data)
-                        .jpeg({
-                            quality: 80,
-                            chromaSubsampling: '4:4:4'
-                        })
-                        .toBuffer();
-
-                    // 创建新的 FormData 实例
-                    const FormData = require('form-data');
-                    const formData = new FormData();
-
-                    // 使用 Buffer.from 创建新的 buffer
-                    const buffer = Buffer.from(jpegBuffer);
-                    
-                    // 添加文件到 FormData
-                    formData.append('media', buffer, {
-                        filename: 'image.jpg',
-                        contentType: 'image/jpeg',
-                        knownLength: buffer.length
-                    });
-
-                    // 上传到微信
-                    const uploadResponse = await axios.post(
-                        `https://api.weixin.qq.com/cgi-bin/media/upload?access_token=${accessToken}&type=image`,
-                        formData,
-                        { 
-                            headers: {
-                                ...formData.getHeaders(),
-                                'Content-Length': formData.getLengthSync()
-                            },
-                            maxContentLength: Infinity,
-                            maxBodyLength: Infinity
-                        }
-                    );
-
-                    console.log('文章内图片上传响应:', uploadResponse.data);
-
-                    if (uploadResponse.data.media_id) {
-                        // 替换内容中的图片URL为微信图片
-                        content = content.replace(
-                            new RegExp(image.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'),
-                            `http://mmbiz.qpic.cn/mmbiz_jpg/${uploadResponse.data.media_id}/0`
-                        );
-                    } else {
-                        console.warn('图片上传失败:', uploadResponse.data);
                     }
-                } catch (error) {
-                    console.error('处理文章内图片失败:', error);
-                    // 继续处理其他图片
+                );
+
+                console.log(`第 ${index + 1} 张图片上传响应:`, uploadResponse.data);
+
+                if (uploadResponse.data.errcode) {
+                    throw new Error(`上传图片失败: ${uploadResponse.data.errmsg}`);
                 }
+
+                uploadedImages.push({
+                    originalUrl: image.url,
+                    mediaId: uploadResponse.data.media_id,
+                    url: uploadResponse.data.url
+                });
+
+            } catch (error) {
+                console.error(`第 ${index + 1} 张图片处理失败:`, error);
+                throw error;
             }
         }
+
+        // 3. 处理文章内容
+        // 首先清理文本内容中的 HTML 标签，但保留换行
+        let textContent = article.content
+            .replace(/<[^>]+>/g, '') // 移除所有 HTML 标签
+            .split('\n')
+            .map(line => line.trim()) // 清理每行的首尾空格
+            .join('\n'); // 使用换行符重新连接，保留所有换行，包括空行
+
+        // 将文本内容转换为段落，保留所有换行
+        const paragraphs = textContent
+            .split('\n')
+            .map(line => {
+                // 即使是空行也转换为段落，这样可以保持原文的段落间距
+                return `<p>${line || '<br/>'}</p>`;
+            })
+            .join('\n'); // 使用换行符连接段落，增加可读性
+
+        // 在文本内容后面添加一个分隔空行
+        const separator = '<p><br/></p>';
+
+        // 在文本内容后面添加图片，确保有分隔
+        const imagesHtml = uploadedImages
+            .map(image => 
+                `<p style="text-align: center;"><img src="${image.url}" data-width="100%" style="max-width:100%;"></p>`
+            )
+            .join('\n');
+
+        // 组合最终的内容，确保文字和图片之间有足够的间距
+        const content = paragraphs + separator + imagesHtml;
 
         // 4. 创建草稿
         const draftData = {
             articles: [{
-                title: article.title,
-                author: article.author || '小红书笔记',
-                digest: article.digest || article.content.slice(0, 120),
+                title: cleanedTitle,
+                author: '', // 作者留空
+                digest: textContent.slice(0, 120), // 使用清理后的文本作为摘要
                 content: content,
-                thumb_media_id: thumbMediaId,
-                need_open_comment: 0,
+                content_source_url: '',
+                thumb_media_id: uploadedImages[0].mediaId,
+                need_open_comment: 1,  // 修改为1，默认开启评论
                 only_fans_can_comment: 0,
                 show_cover_pic: 1
             }]
         };
 
-        console.log('创建草稿请求:', {
+        console.log('创建草稿请求数据:', {
             ...draftData,
             articles: [{
                 ...draftData.articles[0],
-                content: '(content length: ' + content.length + ')',
-                thumb_media_id: thumbMediaId
+                content: `(长度: ${content.length})`
             }]
         });
 
-        const draftResponse = await axios({
-            method: 'post',
-            url: `https://api.weixin.qq.com/cgi-bin/draft/add?access_token=${accessToken}`,
-            data: draftData
-        });
+        // 创建草稿
+        const draftResponse = await axios.post(
+            `https://api.weixin.qq.com/cgi-bin/draft/add?access_token=${accessToken}`,
+            draftData
+        );
 
-        console.log('草稿创建响应:', draftResponse.data);
+        console.log('创建草稿响应:', draftResponse.data);
 
         if (draftResponse.data.errcode) {
             throw new Error(`创建草稿失败: ${draftResponse.data.errmsg}`);
@@ -788,17 +759,57 @@ app.post('/api/wechat/draft', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('发布到微信公众号失败:', error);
+        console.error('发布失败:', error);
         res.status(500).json({
             success: false,
-            message: error.message || '发布失败',
-            details: error.response?.data || error,
-            solution: error.message.includes('whitelist') ? 
-                '请前往微信公众平台的"设置与开发->基本配置->IP白名单"添加当前服务器IP' : 
-                undefined
+            message: error.message,
+            details: error.response?.data
         });
     }
 });
+
+// 修改图片处理函数，添加尺寸限制
+async function compressImage(buffer, maxSize = 1024 * 1024, isThumb = false) {
+    let quality = 80;
+    let width = isThumb ? 900 : 1920; // 封面图片尺寸限制更小
+    let height = isThumb ? 500 : 1920;
+
+    let compressed = await sharp(buffer)
+        .resize(width, height, {
+            fit: 'inside',
+            withoutEnlargement: true
+        })
+        .jpeg({ 
+            quality,
+            chromaSubsampling: '4:4:4'
+        })
+        .toBuffer();
+
+    // 如果图片仍然太大，继续压缩
+    while (compressed.length > maxSize && quality > 10) {
+        quality -= 10;
+        // 如果质量调整到40还是太大，开始缩小尺寸
+        if (quality < 40) {
+            width = Math.floor(width * 0.8);
+            height = Math.floor(height * 0.8);
+        }
+
+        compressed = await sharp(buffer)
+            .resize(width, height, {
+                fit: 'inside',
+                withoutEnlargement: true
+            })
+            .jpeg({ 
+                quality,
+                chromaSubsampling: '4:4:4'
+            })
+            .toBuffer();
+
+        console.log(`压缩图片 - 质量: ${quality}, 尺寸: ${width}x${height}, 大小: ${(compressed.length/1024).toFixed(2)}KB`);
+    }
+
+    return compressed;
+}
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
