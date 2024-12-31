@@ -3,7 +3,7 @@ const cors = require('cors');
 const puppeteer = require('puppeteer');
 const path = require('path');
 const timeout = require('connect-timeout');
-const fetch = require('node-fetch');
+const axios = require('axios');
 
 const app = express();
 
@@ -326,141 +326,99 @@ class XiaohongshuCrawler {
         try {
             await this.initialize();
             
-            await this.page.setExtraHTTPHeaders({
-                'Referer': 'https://www.xiaohongshu.com',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            // 访问笔记页面
+            await this.page.goto(url, {
+                waitUntil: 'networkidle2',
+                timeout: 60000
             });
 
-            await this.page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
-            await this.delay(5000);
+            // 等待页面加载
+            await this.delay(2000);
 
+            // 获取笔记详情
             const detail = await this.page.evaluate(() => {
                 try {
                     // 获取标题
-                    const titleSelectors = [
-                        'h1.title',
-                        '.note-content .title',
-                        '.content .title'
-                    ];
-                    
-                    let title = '';
-                    for (const selector of titleSelectors) {
-                        const element = document.querySelector(selector);
-                        if (element) {
-                            title = element.textContent.trim();
-                            if (title) break;
-                        }
-                    }
+                    const title = document.querySelector('#detail-title')?.textContent?.trim() || 
+                                document.querySelector('.title')?.textContent?.trim() || 
+                                '无标题';
 
                     // 获取正文内容
-                    const contentSelectors = [
-                        '.content .desc',
-                        '.note-content .desc',
-                        '.content p'
-                    ];
-
+                    const contentElement = document.querySelector('#detail-desc') || 
+                                        document.querySelector('.desc') || 
+                                        document.querySelector('.content');
+                    
                     let content = '';
-                    for (const selector of contentSelectors) {
-                        const element = document.querySelector(selector);
-                        if (element) {
-                            // 克隆节点以避免修改原始DOM
-                            const clonedElement = element.cloneNode(true);
-                            
-                            // 移除所有图片（包括表情包）
-                            const images = clonedElement.querySelectorAll('img');
-                            images.forEach(img => {
-                                // 如果是表情包或小图标，直接移除
-                                if (img.width < 100 || img.height < 100 || 
-                                    img.src.includes('emoji') || 
-                                    img.alt.includes('emoji')) {
-                                    img.remove();
-                                }
-                            });
-                            
-                            // 获取纯文本内容，保留原始换行
-                            content = clonedElement.innerHTML
-                                // 保留换行标签
-                                .replace(/<br\s*\/?>/gi, '\n')
-                                // 移除所有其他HTML标签，但保留内容
-                                .replace(/<[^>]+>/g, '')
-                                // 移除表情文字描述
-                                .replace(/\[小红书表情\]/g, '')
-                                .replace(/\[[^\]]+\]/g, '')
-                                // 清理多余空格
-                                .replace(/\s+/g, ' ')
-                                // 清理多余换行，最多保留两个连续换行
-                                .replace(/\n{3,}/g, '\n\n')
-                                .trim();
-                                
-                            if (content) break;
-                        }
+                    if (contentElement) {
+                        // 克隆节点以避免修改原始DOM
+                        const clonedElement = contentElement.cloneNode(true);
+                        
+                        // 移除表情包图片
+                        clonedElement.querySelectorAll('img.note-content-emoji').forEach(img => img.remove());
+                        
+                        // 获取纯文本内容，保留换行
+                        content = clonedElement.textContent
+                            .replace(/\[小红书表情\]/g, '')
+                            .replace(/\[[^\]]+\]/g, '')
+                            .split('\n')
+                            .map(line => line.trim())
+                            .filter(line => line)
+                            .join('\n');
                     }
 
-                    // 将处理后的纯文本重新转换为HTML格式，保留换行
-                    content = content
-                        .split('\n')
-                        .map(line => line.trim())
-                        .filter(line => line) // 移除空行
-                        .map(line => `<p>${line}</p>`)
-                        .join('\n');
+                    // 获取封面图和所有图片
+                    const coverImg = document.querySelector('.cover-image img');
+                    const coverImageUrl = coverImg ? 
+                        (coverImg.getAttribute('data-src') || coverImg.src).split('?')[0].replace('http://', 'https://') : 
+                        null;
 
-                    // 清理内容
-                    content = content
-                        .replace(/<div[^>]*class="user-info"[^>]*>.*?<\/div>/g, '')
-                        .replace(/<div[^>]*class="comments"[^>]*>.*?<\/div>/g, '')
-                        .replace(/<div[^>]*class="interaction"[^>]*>.*?<\/div>/g, '')
-                        .replace(/马上登录即可.*?<\/div>/g, '')
-                        .replace(/#[^#\s]+/g, '')
-                        .trim();
+                    // 获取所有图片
+                    const imgSet = new Set(); // 使用 Set 去重
+                    const imgElements = document.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate) img');
+                    
+                    const validImages = Array.from(imgElements)
+                        .map(img => {
+                            const url = (img.getAttribute('data-src') || img.src).split('?')[0];
+                            if (url && 
+                                !url.includes('comment') && 
+                                !url.includes('avatar') && 
+                                !url.includes('emoji')) {
+                                return url.replace('http://', 'https://');
+                            }
+                            return null;
+                        })
+                        .filter(Boolean);
 
-                    // 修改图片获取逻辑
-                    const imageSelectors = [
-                        'img[src*="xhscdn.com"]',  // 优先匹配小红书图片
-                        '.note-content img',
-                        '.main-image img',
-                        '.content img'
-                    ];
+                    // 使用 Set 去重
+                    validImages.forEach(url => imgSet.add(url));
 
-                    let images = [];
-                    for (const selector of imageSelectors) {
-                        const imgElements = document.querySelectorAll(selector);
-                        if (imgElements.length > 0) {
-                            images = Array.from(imgElements)
-                                .map(img => {
-                                    // 获取原始图片URL
-                                    const originalSrc = img.getAttribute('data-src') || 
-                                                      img.getAttribute('src') || 
-                                                      img.src;
-                                    
-                                    // 过滤掉表情包和头像
-                                    if (originalSrc && 
-                                        !originalSrc.includes('avatar') && 
-                                        !originalSrc.includes('emoji') &&
-                                        (img.width > 100 || img.height > 100)) {
-                                        return `/api/proxy-image?url=${encodeURIComponent(originalSrc)}`;
-                                    }
-                                    return null;
-                                })
-                                .filter(Boolean);  // 移除空值
-                            
-                            if (images.length > 0) break;
-                        }
+                    // 构建最终的图片数组
+                    let finalImages = [];
+                    if (coverImageUrl) {
+                        finalImages.push({ url: coverImageUrl });
+                        // 添加其他图片，排除封面图
+                        Array.from(imgSet)
+                            .filter(url => url !== coverImageUrl)
+                            .forEach(url => finalImages.push({ url }));
+                    } else {
+                        finalImages = Array.from(imgSet).map(url => ({ url }));
                     }
 
                     return {
-                        title: title || '预览',
+                        title,
                         content,
-                        images,
-                        coverImage: images[0] || '',
-                        text: content.replace(/<[^>]+>/g, '').trim()
+                        images: finalImages,
+                        coverImage: coverImageUrl || '',
+                        url: window.location.href
                     };
                 } catch (error) {
                     console.error('处理页面内容时出错:', error);
-                    return null;
+                    throw error;
                 }
             });
 
             return detail;
+
         } catch (error) {
             console.error('获取笔记详情失败:', error);
             throw error;
@@ -548,9 +506,9 @@ app.post('/api/login', async (req, res) => {
 
 // 修改图片代理路由
 app.get('/api/proxy-image', async (req, res) => {
-        const { url } = req.query;
+    const { url } = req.query;
     
-        if (!url) {
+    if (!url) {
         console.error('缺少图片URL参数');
         return res.status(400).send('Missing URL parameter');
     }
@@ -559,60 +517,29 @@ app.get('/api/proxy-image', async (req, res) => {
         console.log('正在代理图片:', url);
         const decodedUrl = decodeURIComponent(url);
 
-        // 使用 Puppeteer 页面获取图片
-        const page = await crawler.browser.newPage();
-        
-        try {
-            // 设置拦截器来获取图片数据
-            let imageData = null;
-            await page.setRequestInterception(true);
-            
-            page.on('request', request => {
-                if (request.resourceType() === 'image') {
-                    // 添加必要的请求头
-                    const headers = {
-                        ...request.headers(),
-                        'Referer': 'https://www.xiaohongshu.com',
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                        'Accept': 'image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-                    };
-                    request.continue({ headers });
-                } else {
-                    request.continue();
-                }
-            });
+        // 使用 axios 替代 fetch
+        const response = await axios({
+            method: 'get',
+            url: decodedUrl,
+            headers: {
+                'Referer': 'https://www.xiaohongshu.com',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
+            },
+            responseType: 'arraybuffer'
+        });
 
-            page.on('response', async response => {
-                if (response.url() === decodedUrl) {
-                    imageData = await response.buffer();
-                }
-            });
+        // 设置响应头
+        res.set({
+            'Content-Type': response.headers['content-type'] || 'image/jpeg',
+            'Cache-Control': 'public, max-age=31536000',
+            'Access-Control-Allow-Origin': '*'
+        });
 
-            // 访问图片URL
-            await page.goto(decodedUrl, {
-                waitUntil: 'networkidle0',
-                timeout: 30000
-            });
+        // 发送图片数据
+        res.send(response.data);
 
-            // 等待图片加载
-            await page.waitForTimeout(2000);
-
-            if (imageData) {
-                // 设置响应头
-                res.set({
-                    'Content-Type': 'image/jpeg',
-                    'Cache-Control': 'public, max-age=31536000',
-                    'Access-Control-Allow-Origin': '*'
-                });
-
-                // 发送图片数据
-                res.send(imageData);
-            } else {
-                throw new Error('Failed to fetch image data');
-            }
-        } finally {
-            await page.close();
-        }
     } catch (error) {
         console.error('代理图片失败:', error);
         
@@ -634,6 +561,102 @@ app.use((err, req, res, next) => {
         message: '服务器内部错误',
         error: err.message 
     });
+});
+
+app.post('/api/notes', async (req, res) => {
+    try {
+        const noteData = req.body;
+        
+        // 验证数据
+        if (!noteData.title || !noteData.content) {
+            return res.status(400).json({ error: '标题和内容不能为空' });
+        }
+
+        // 保存到数据库
+        const note = await Note.create({
+            title: noteData.title,
+            content: noteData.content,
+            images: noteData.images,
+            sourceUrl: noteData.url,
+            timestamp: noteData.timestamp
+        });
+
+        res.json({ success: true, note });
+    } catch (error) {
+        console.error('保存笔记失败:', error);
+        res.status(500).json({ error: '保存笔记失败' });
+    }
+});
+
+// 添加微信公众号相关的路由
+app.post('/api/wechat/draft', async (req, res) => {
+    try {
+        const { appId, appSecret, article } = req.body;
+
+        // 1. 获取访问令牌
+        const tokenResponse = await axios.get(
+            `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${appId}&secret=${appSecret}`
+        );
+
+        if (!tokenResponse.data.access_token) {
+            throw new Error('获取访问令牌失败');
+        }
+
+        const accessToken = tokenResponse.data.access_token;
+
+        // 2. 上传封面图片（如果有）
+        let thumbMediaId = '';
+        if (article.images && article.images.length > 0) {
+            const coverImage = article.images[0];
+            const imageResponse = await axios({
+                method: 'post',
+                url: `https://api.weixin.qq.com/cgi-bin/media/upload?access_token=${accessToken}&type=image`,
+                data: {
+                    media: coverImage.url
+                },
+                headers: {
+                    'Content-Type': 'multipart/form-data'
+                }
+            });
+
+            if (imageResponse.data.media_id) {
+                thumbMediaId = imageResponse.data.media_id;
+            }
+        }
+
+        // 3. 创建草稿
+        const draftResponse = await axios({
+            method: 'post',
+            url: `https://api.weixin.qq.com/cgi-bin/draft/add?access_token=${accessToken}`,
+            data: {
+                articles: [{
+                    title: article.title,
+                    author: article.author,
+                    digest: article.digest,
+                    content: article.content,
+                    thumb_media_id: thumbMediaId,
+                    need_open_comment: 0,
+                    only_fans_can_comment: 0
+                }]
+            }
+        });
+
+        if (draftResponse.data.errcode) {
+            throw new Error(`创建草稿失败: ${draftResponse.data.errmsg}`);
+        }
+
+        res.json({
+            success: true,
+            media_id: draftResponse.data.media_id
+        });
+
+    } catch (error) {
+        console.error('发布到微信公众号失败:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
 });
 
 const PORT = process.env.PORT || 8080;

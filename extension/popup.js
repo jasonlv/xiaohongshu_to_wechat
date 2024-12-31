@@ -83,18 +83,40 @@ async function downloadImages(data) {
                 const image = data.images[i];
                 console.log('准备下载图片:', i + 1, image.url);
 
-                // 创建下载链接
-                const a = document.createElement('a');
-                a.href = image.url;
-                a.download = `${folderName}_${i + 1}.jpg`;
-                a.target = '_blank';
-                a.rel = 'noopener noreferrer';
+                // 使用 Canvas 转换图片格式
+                const img = new Image();
+                img.crossOrigin = 'anonymous';  // 允许跨域
                 
-                // 模拟用户点击下载
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
+                // 等待图片加载
+                await new Promise((resolve, reject) => {
+                    img.onload = resolve;
+                    img.onerror = reject;
+                    img.src = image.url;
+                });
+
+                // 创建 canvas
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
                 
+                // 将图片绘制到 canvas
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                
+                // 转换为 PNG 格式并下载
+                canvas.toBlob(async (blob) => {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${folderName}_${i + 1}.png`;  // 使用 .png 扩展名
+                    
+                    // 模拟用户点击下载
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }, 'image/png', 1.0);  // 指定 PNG 格式，最高质量
+
                 status.textContent = `已下载 ${i + 1}/${data.images.length} 张图片`;
                 // 等待一段时间再下载下一张
                 await new Promise(resolve => setTimeout(resolve, 1500));
@@ -112,6 +134,24 @@ async function downloadImages(data) {
     }
 }
 
+// 文件名清理函数
 function sanitizeFilename(name) {
-    return name.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim();
+    return name
+        // 移除 emoji 表情符号
+        .replace(/[\u{1F300}-\u{1F9FF}]/gu, '')
+        // 移除其他特殊 Unicode 符号和表情
+        .replace(/[\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F100}-\u{1F1FF}\u{1F200}-\u{1F2FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}]/gu, '')
+        // 移除文件系统不允许的字符
+        .replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
+        // 移除中文标点符号
+        .replace(/[《》「」『』【】〖〗（）［］｛｝〈〉〔〕・，。、；：！？…～￥]/g, '')
+        // 只保留字母、数字、中文、连字符和下划线
+        .replace(/[^\w\s\u4e00-\u9fa5\-]/g, '')
+        // 将连续的标点和空格替换为单个连字符
+        .replace(/[\s\-_]+/g, '-')
+        // 移除首尾的标点和空格
+        .trim()
+        .replace(/^[-_]+|[-_]+$/g, '')
+        // 如果处理后为空，则使用默认名称
+        || 'untitled';
 } 
