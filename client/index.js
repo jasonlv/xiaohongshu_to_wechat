@@ -38,11 +38,13 @@ class WechatPublisher {
     constructor(appId, appSecret) {
         this.appId = appId;
         this.appSecret = appSecret;
-        this.baseUrl = 'http://localhost:8080'; // 服务器地址
+        this.baseUrl = 'http://localhost:8080';
     }
 
     async createDraft(article) {
         try {
+            console.log('开始发布文章:', article);
+            
             const response = await fetch(`${this.baseUrl}/api/wechat/draft`, {
                 method: 'POST',
                 headers: {
@@ -54,19 +56,21 @@ class WechatPublisher {
                     article: {
                         title: article.title,
                         content: this.formatContent(article.content, article.images),
-                        thumb_media_id: '', // 封面图的media_id，需要先上传
+                        images: article.images,
                         author: '小红书笔记',
                         digest: article.content.slice(0, 120) // 摘要
                     }
                 })
             });
 
+            const data = await response.json();
+            
             if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.message || '发布失败');
+                throw new Error(data.message || data.details || '发布失败');
             }
 
-            return await response.json();
+            console.log('发布成功:', data);
+            return data;
         } catch (error) {
             console.error('发布失败:', error);
             throw error;
@@ -75,8 +79,23 @@ class WechatPublisher {
 
     // 格式化文章内容，添加图片
     formatContent(content, images) {
+        // 检查是否需要忽略话题标签
+        const ignoreTopics = document.getElementById('ignoreTopics')?.checked;
+        
+        // 处理正文内容
+        let processedContent = content;
+        if (ignoreTopics) {
+            // 找到第一个话题标签的位置
+            const topicIndex = content.indexOf('#');
+            if (topicIndex !== -1) {
+                // 只保留话题标签之前的内容
+                processedContent = content.substring(0, topicIndex).trim();
+            }
+        }
+
         // 将换行转换为HTML段落
-        const paragraphs = content.split('\n')
+        const paragraphs = processedContent
+            .split('\n')
             .filter(p => p.trim())
             .map(p => `<p>${p}</p>`);
 
@@ -94,11 +113,11 @@ class App {
     constructor() {
         this.crawler = new XiaohongshuCrawler();
         this.publisher = null;
+        this.lastNote = null; // 存储最后一次获取的笔记
         this.init();
     }
 
     init() {
-        // 添加错误处理
         try {
             if (document.readyState === 'loading') {
                 document.addEventListener('DOMContentLoaded', () => {
@@ -117,9 +136,48 @@ class App {
         try {
             this.bindEvents();
             this.loadConfig();
+            this.restoreLastState(); // 恢复上次的状态
         } catch (error) {
             console.error('初始化组件失败:', error);
             showStatus('初始化组件失败: ' + error.message);
+        }
+    }
+
+    // 保存最后的状态
+    saveLastState() {
+        const urlInput = document.getElementById('noteUrl');
+        const noteDetail = document.getElementById('noteDetail');
+        
+        const state = {
+            url: urlInput?.value || '',
+            note: this.lastNote,
+            timestamp: new Date().toISOString()
+        };
+
+        localStorage.setItem('lastState', JSON.stringify(state));
+    }
+
+    // 恢复上次的状态
+    restoreLastState() {
+        try {
+            const savedState = localStorage.getItem('lastState');
+            if (savedState) {
+                const state = JSON.parse(savedState);
+                
+                // 恢复URL输入
+                const urlInput = document.getElementById('noteUrl');
+                if (urlInput && state.url) {
+                    urlInput.value = state.url;
+                }
+
+                // 恢复笔记内容
+                if (state.note) {
+                    this.lastNote = state.note;
+                    this.displayNote(state.note);
+                }
+            }
+        } catch (error) {
+            console.error('恢复状态失败:', error);
         }
     }
 
@@ -127,13 +185,22 @@ class App {
         // 保存配置按钮
         const saveConfigBtn = document.getElementById('saveConfig');
         if (saveConfigBtn) {
-            saveConfigBtn.addEventListener('click', () => this.saveConfig());
+            saveConfigBtn.addEventListener('click', () => {
+                this.saveConfig();
+                this.saveLastState(); // 保存状态
+            });
         }
 
         // 获取笔记按钮
         const fetchNoteBtn = document.getElementById('fetchNote');
         if (fetchNoteBtn) {
             fetchNoteBtn.addEventListener('click', () => this.fetchNote());
+        }
+
+        // URL输入框变化时保存状态
+        const urlInput = document.getElementById('noteUrl');
+        if (urlInput) {
+            urlInput.addEventListener('input', () => this.saveLastState());
         }
     }
 
@@ -187,7 +254,9 @@ class App {
         try {
             showStatus('正在获取笔记...');
             const detail = await this.crawler.fetchNoteDetail(url);
+            this.lastNote = detail; // 保存获取的笔记
             this.displayNote(detail);
+            this.saveLastState(); // 保存状态
             showStatus('获取成功');
         } catch (error) {
             showStatus('获取失败: ' + error.message);
@@ -197,6 +266,12 @@ class App {
     displayNote(note) {
         const container = document.getElementById('noteDetail');
         if (!container) return;
+
+        // 保存图片信息到 note 对象
+        this.lastNote = {
+            ...note,
+            images: note.images
+        };
 
         // 处理正文内容，保留换行
         const formattedContent = note.content
@@ -223,6 +298,13 @@ class App {
                     `).join('')}
                 </div>
                 
+                <div class="publish-options">
+                    <label class="option-item">
+                        <input type="checkbox" id="ignoreTopics" checked>
+                        忽略话题标签
+                    </label>
+                </div>
+                
                 <button id="publishButton" class="publish-btn">发布到公众号</button>
             </div>
 
@@ -235,7 +317,7 @@ class App {
 
         const publishBtn = document.getElementById('publishButton');
         if (publishBtn) {
-            publishBtn.addEventListener('click', () => this.publishNote(note));
+            publishBtn.addEventListener('click', () => this.publishNote(this.lastNote));
         }
     }
 
@@ -249,6 +331,7 @@ class App {
             showStatus('正在发布...');
             await this.publisher.createDraft(note);
             showStatus('发布成功');
+            this.saveLastState(); // 保存状态
         } catch (error) {
             showStatus('发布失败: ' + error.message);
         }

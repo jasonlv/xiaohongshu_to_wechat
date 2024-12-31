@@ -4,6 +4,7 @@ const puppeteer = require('puppeteer');
 const path = require('path');
 const timeout = require('connect-timeout');
 const axios = require('axios');
+const sharp = require('sharp');
 
 const app = express();
 
@@ -588,18 +589,23 @@ app.post('/api/notes', async (req, res) => {
     }
 });
 
-// 添加微信公众号相关的路由
+// 修改微信公众号相关的路由
 app.post('/api/wechat/draft', async (req, res) => {
     try {
         const { appId, appSecret, article } = req.body;
+        
+        console.log('收到发布请求:', { appId, article: { title: article.title } });
 
         // 1. 获取访问令牌
-        const tokenResponse = await axios.get(
-            `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${appId}&secret=${appSecret}`
-        );
+        const tokenUrl = `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${appId}&secret=${appSecret}`;
+        const tokenResponse = await axios.get(tokenUrl);
+        
+        if (tokenResponse.data.errcode === 40164) {
+            throw new Error(`请在微信公众平台添加IP白名单：${tokenResponse.data.errmsg}`);
+        }
 
         if (!tokenResponse.data.access_token) {
-            throw new Error('获取访问令牌失败');
+            throw new Error(`获取访问令牌失败: ${JSON.stringify(tokenResponse.data)}`);
         }
 
         const accessToken = tokenResponse.data.access_token;
@@ -608,38 +614,169 @@ app.post('/api/wechat/draft', async (req, res) => {
         let thumbMediaId = '';
         if (article.images && article.images.length > 0) {
             const coverImage = article.images[0];
-            const imageResponse = await axios({
-                method: 'post',
-                url: `https://api.weixin.qq.com/cgi-bin/media/upload?access_token=${accessToken}&type=image`,
-                data: {
-                    media: coverImage.url
-                },
-                headers: {
-                    'Content-Type': 'multipart/form-data'
-                }
-            });
+            
+            try {
+                // 先下载图片
+                console.log('下载封面图片:', coverImage.url);
+                const imageResponse = await axios({
+                    method: 'get',
+                    url: coverImage.url,
+                    responseType: 'arraybuffer',
+                    headers: {
+                        'Referer': 'https://www.xiaohongshu.com',
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    }
+                });
 
-            if (imageResponse.data.media_id) {
-                thumbMediaId = imageResponse.data.media_id;
+                // 使用 sharp 转换图片格式为 JPEG
+                console.log('转换图片格式为JPEG');
+                const jpegBuffer = await sharp(imageResponse.data)
+                    .jpeg({
+                        quality: 80,
+                        chromaSubsampling: '4:4:4'
+                    })
+                    .toBuffer();
+
+                // 创建 FormData
+                const FormData = require('form-data');
+                const formData = new FormData();
+                
+                // 添加转换后的图片到 FormData
+                formData.append('media', jpegBuffer, {
+                    filename: 'cover.jpg',
+                    contentType: 'image/jpeg',
+                    knownLength: jpegBuffer.length
+                });
+
+                // 上传到微信
+                const uploadUrl = `https://api.weixin.qq.com/cgi-bin/media/upload?access_token=${accessToken}&type=image`;
+                console.log('上传封面图片到微信');
+
+                const uploadResponse = await axios.post(uploadUrl, formData, {
+                    headers: {
+                        ...formData.getHeaders(),
+                        'Content-Length': formData.getLengthSync()
+                    },
+                    maxContentLength: Infinity,
+                    maxBodyLength: Infinity
+                });
+
+                console.log('封面图片上传响应:', uploadResponse.data);
+
+                if (uploadResponse.data.media_id) {
+                    thumbMediaId = uploadResponse.data.media_id;
+                    console.log('获取到封面图片 media_id:', thumbMediaId);
+                } else {
+                    throw new Error(`上传封面图片失败: ${JSON.stringify(uploadResponse.data)}`);
+                }
+            } catch (error) {
+                console.error('上传封面图片失败:', error);
+                throw new Error('上传封面图片失败，无法创建草稿');
+            }
+        } else {
+            throw new Error('文章必须包含至少一张图片作为封面');
+        }
+
+        // 3. 处理文章内容中的图片
+        let content = article.content;
+        if (article.images && article.images.length > 0) {
+            for (const image of article.images) {
+                try {
+                    // 下载图片
+                    const imageResponse = await axios({
+                        method: 'get',
+                        url: image.url,
+                        responseType: 'arraybuffer',
+                        headers: {
+                            'Referer': 'https://www.xiaohongshu.com',
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                        }
+                    });
+
+                    // 转换图片格式为 JPEG
+                    const jpegBuffer = await sharp(imageResponse.data)
+                        .jpeg({
+                            quality: 80,
+                            chromaSubsampling: '4:4:4'
+                        })
+                        .toBuffer();
+
+                    // 创建新的 FormData 实例
+                    const FormData = require('form-data');
+                    const formData = new FormData();
+
+                    // 使用 Buffer.from 创建新的 buffer
+                    const buffer = Buffer.from(jpegBuffer);
+                    
+                    // 添加文件到 FormData
+                    formData.append('media', buffer, {
+                        filename: 'image.jpg',
+                        contentType: 'image/jpeg',
+                        knownLength: buffer.length
+                    });
+
+                    // 上传到微信
+                    const uploadResponse = await axios.post(
+                        `https://api.weixin.qq.com/cgi-bin/media/upload?access_token=${accessToken}&type=image`,
+                        formData,
+                        { 
+                            headers: {
+                                ...formData.getHeaders(),
+                                'Content-Length': formData.getLengthSync()
+                            },
+                            maxContentLength: Infinity,
+                            maxBodyLength: Infinity
+                        }
+                    );
+
+                    console.log('文章内图片上传响应:', uploadResponse.data);
+
+                    if (uploadResponse.data.media_id) {
+                        // 替换内容中的图片URL为微信图片
+                        content = content.replace(
+                            new RegExp(image.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'),
+                            `http://mmbiz.qpic.cn/mmbiz_jpg/${uploadResponse.data.media_id}/0`
+                        );
+                    } else {
+                        console.warn('图片上传失败:', uploadResponse.data);
+                    }
+                } catch (error) {
+                    console.error('处理文章内图片失败:', error);
+                    // 继续处理其他图片
+                }
             }
         }
 
-        // 3. 创建草稿
+        // 4. 创建草稿
+        const draftData = {
+            articles: [{
+                title: article.title,
+                author: article.author || '小红书笔记',
+                digest: article.digest || article.content.slice(0, 120),
+                content: content,
+                thumb_media_id: thumbMediaId,
+                need_open_comment: 0,
+                only_fans_can_comment: 0,
+                show_cover_pic: 1
+            }]
+        };
+
+        console.log('创建草稿请求:', {
+            ...draftData,
+            articles: [{
+                ...draftData.articles[0],
+                content: '(content length: ' + content.length + ')',
+                thumb_media_id: thumbMediaId
+            }]
+        });
+
         const draftResponse = await axios({
             method: 'post',
             url: `https://api.weixin.qq.com/cgi-bin/draft/add?access_token=${accessToken}`,
-            data: {
-                articles: [{
-                    title: article.title,
-                    author: article.author,
-                    digest: article.digest,
-                    content: article.content,
-                    thumb_media_id: thumbMediaId,
-                    need_open_comment: 0,
-                    only_fans_can_comment: 0
-                }]
-            }
+            data: draftData
         });
+
+        console.log('草稿创建响应:', draftResponse.data);
 
         if (draftResponse.data.errcode) {
             throw new Error(`创建草稿失败: ${draftResponse.data.errmsg}`);
@@ -654,7 +791,11 @@ app.post('/api/wechat/draft', async (req, res) => {
         console.error('发布到微信公众号失败:', error);
         res.status(500).json({
             success: false,
-            message: error.message
+            message: error.message || '发布失败',
+            details: error.response?.data || error,
+            solution: error.message.includes('whitelist') ? 
+                '请前往微信公众平台的"设置与开发->基本配置->IP白名单"添加当前服务器IP' : 
+                undefined
         });
     }
 });
