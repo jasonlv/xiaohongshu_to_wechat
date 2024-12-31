@@ -63,41 +63,28 @@ async function getNoteData() {
             }
 
             // 修改图片获取函数
-            async function fetchImage(url) {
+            async function downloadImage(url) {
                 try {
-                    // 创建一个新的 img 元素来加载图片
-                    const img = new Image();
-                    img.crossOrigin = 'anonymous'; // 允许跨域
+                    // 创建一个隐藏的链接元素
+                    const link = document.createElement('a');
+                    link.style.display = 'none';
+                    link.href = url;
+                    link.download = ''; // 使用原始文件名
+                    link.target = '_blank';
+                    link.rel = 'noopener noreferrer';
                     
-                    // 将图片加载包装成 Promise
-                    const imageLoadPromise = new Promise((resolve, reject) => {
-                        img.onload = () => resolve(img);
-                        img.onerror = () => reject(new Error('Image load failed'));
-                    });
-
-                    // 开始加载图片
-                    img.src = url;
+                    // 模拟右键 - 另存为的行为
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
                     
-                    // 等待图片加载完成
-                    const loadedImg = await imageLoadPromise;
+                    // 等待一下确保下载开始
+                    await new Promise(resolve => setTimeout(resolve, 1000));
                     
-                    // 使用 canvas 将图片转换为 blob
-                    const canvas = document.createElement('canvas');
-                    canvas.width = loadedImg.width;
-                    canvas.height = loadedImg.height;
-                    
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(loadedImg, 0, 0);
-                    
-                    // 转换为 blob
-                    return new Promise(resolve => {
-                        canvas.toBlob(blob => {
-                            resolve(blob);
-                        }, 'image/jpeg', 0.95);
-                    });
+                    return true;
                 } catch (error) {
-                    console.error('获取图片失败:', error, url);
-                    throw error;
+                    console.error('下载图片失败:', error, url);
+                    return false;
                 }
             }
 
@@ -114,13 +101,9 @@ async function getNoteData() {
                     imageUrl = imageUrl.split('?')[0].replace('http://', 'https://');
                     console.log('处理图片:', index + 1, imageUrl);
 
-                    // 使用新的获取图片函数
-                    const blob = await fetchImage(imageUrl);
-                    console.log('图片获取成功:', index + 1);
-
+                    // 直接返回图片URL和文件名
                     return {
                         url: imageUrl,
-                        blob: blob,
                         filename: `${sanitizeFilename(title)}_${index + 1}.jpg`
                     };
                 } catch (error) {

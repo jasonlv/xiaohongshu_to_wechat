@@ -62,48 +62,54 @@ async function downloadImages(data) {
     const status = document.getElementById('status');
     const folderName = sanitizeFilename(data.title);
     
-    // 首先下载文本内容
-    const textBlob = new Blob([
-        `标题：${data.title}\n\n正文：\n${data.content}\n\n来源：${data.url}`
-    ], { type: 'text/plain' });
-    
-    const textUrl = URL.createObjectURL(textBlob);
-    const textLink = document.createElement('a');
-    textLink.href = textUrl;
-    textLink.download = `${folderName}_content.txt`;
-    document.body.appendChild(textLink);
-    textLink.click();
-    document.body.removeChild(textLink);
-    URL.revokeObjectURL(textUrl);
+    try {
+        // 首先下载文本内容
+        const textBlob = new Blob([
+            `标题：${data.title}\n\n正文：\n${data.content}\n\n来源：${data.url}`
+        ], { type: 'text/plain' });
+        
+        const textUrl = URL.createObjectURL(textBlob);
+        const textLink = document.createElement('a');
+        textLink.href = textUrl;
+        textLink.download = `${folderName}_content.txt`;
+        document.body.appendChild(textLink);
+        textLink.click();
+        document.body.removeChild(textLink);
+        URL.revokeObjectURL(textUrl);
 
-    // 然后下载图片
-    for (let i = 0; i < data.images.length; i++) {
-        try {
-            const image = data.images[i];
-            if (image.blob && image.blob instanceof Blob) {
-                console.log('准备下载图片:', i + 1);
-                const url = URL.createObjectURL(image.blob);
+        // 然后下载图片
+        for (let i = 0; i < data.images.length; i++) {
+            try {
+                const image = data.images[i];
+                console.log('准备下载图片:', i + 1, image.url);
+
+                // 创建下载链接
                 const a = document.createElement('a');
-                a.href = url;
+                a.href = image.url;
                 a.download = `${folderName}_${i + 1}.jpg`;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                
+                // 模拟用户点击下载
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
-                URL.revokeObjectURL(url);
                 
                 status.textContent = `已下载 ${i + 1}/${data.images.length} 张图片`;
+                // 等待一段时间再下载下一张
+                await new Promise(resolve => setTimeout(resolve, 1500));
+            } catch (error) {
+                console.error('下载图片失败:', error);
+                status.textContent = `图片 ${i + 1} 下载失败`;
                 await new Promise(resolve => setTimeout(resolve, 1000));
-            } else {
-                console.warn('无效的图片数据:', image);
             }
-        } catch (error) {
-            console.error('下载图片失败:', error);
-            status.textContent = `图片 ${i + 1} 下载失败`;
-            await new Promise(resolve => setTimeout(resolve, 1000));
         }
+        
+        status.textContent = '所有文件下载完成！';
+    } catch (error) {
+        console.error('下载过程出错:', error);
+        status.textContent = '下载过程出错: ' + error.message;
     }
-    
-    status.textContent = '所有文件下载完成！';
 }
 
 function sanitizeFilename(name) {
