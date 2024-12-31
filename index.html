@@ -2,30 +2,34 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>汉字图片选择工具</title>
+    <title>小红书笔记同步助手</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>汉字图片选择工具</h1>
-            <div class="folder-section">
-                <button id="selectFolder">选择字体图片文件夹</button>
-                <div id="folderPath" class="folder-path" title="未选择文件夹">未选择文件夹</div>
+            <h1>小红书笔记同步助手</h1>
+            <div class="config-section">
+                <input type="text" id="xhsUrl" placeholder="请输入小红书笔记或用户主页链接" style="flex-grow: 1;">
+                <input type="text" id="wxAppId" placeholder="微信公众号AppID">
+                <input type="text" id="wxAppSecret" placeholder="微信公众号AppSecret">
+                <button id="saveConfig">保存配置</button>
             </div>
         </header>
         
         <main>
-            <textarea id="inputText" 
-                      placeholder="请输入要查找的汉字...&#10;（仅处理中文字符，自动忽略其他字符）"
-                      maxlength="1000"></textarea>
-            <div id="preview" class="preview-grid"></div>
+            <div class="control-panel">
+                <button id="refreshNotes">获取笔记</button>
+                <span id="lastUpdate"></span>
+            </div>
+            
+            <div id="notesList" class="notes-list">
+                <!-- 笔记列表将在这里动态生成 -->
+            </div>
         </main>
-        
-        <footer>
-            <button id="exportBtn" disabled>导出所有图片</button>
-        </footer>
+
+        <div id="statusBar" class="status-bar"></div>
     </div>
-    <script src="index.js"></script>
+    <script src="client/index.js"></script>
 </body>
 </html> 
