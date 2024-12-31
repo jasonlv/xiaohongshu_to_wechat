@@ -342,6 +342,23 @@ class XiaohongshuCrawler {
             // 等待页面加载
             await this.delay(2000);
 
+            // 模拟滚动和图片查看行为
+            await this.page.evaluate(() => {
+                // 模拟滚动
+                window.scrollBy(0, 500);
+                // 触发滚动事件
+                window.dispatchEvent(new Event('scroll'));
+            });
+
+            await this.delay(1000);
+
+            // 模拟点击图片行为
+            const images = await this.page.$$('.swiper-slide img');
+            for (const img of images) {
+                await img.click();
+                await this.delay(500);
+            }
+
             // 获取笔记详情
             const detail = await this.page.evaluate(() => {
                 try {
@@ -379,36 +396,34 @@ class XiaohongshuCrawler {
                         (coverImg.getAttribute('data-src') || coverImg.src).split('?')[0].replace('http://', 'https://') : 
                         null;
 
-                    // 获取所有图片
-                    const imgSet = new Set(); // 使用 Set 去重
-                    const imgElements = document.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate) img');
-                    
+                    // 获取图片时确保已加载
+                    const imgElements = document.querySelectorAll('.swiper-slide img');
                     const validImages = Array.from(imgElements)
                         .map(img => {
-                            const url = (img.getAttribute('data-src') || img.src).split('?')[0];
-                            if (url && 
-                                !url.includes('comment') && 
-                                !url.includes('avatar') && 
-                                !url.includes('emoji')) {
-                                return url.replace('http://', 'https://');
+                            // 确保图片已加载
+                            if (img.complete && img.naturalHeight !== 0) {
+                                const url = (img.getAttribute('data-src') || img.src).split('?')[0];
+                                if (url && 
+                                    !url.includes('comment') && 
+                                    !url.includes('avatar') && 
+                                    !url.includes('emoji')) {
+                                    return url.replace('http://', 'https://');
+                                }
                             }
                             return null;
                         })
                         .filter(Boolean);
-
-                    // 使用 Set 去重
-                    validImages.forEach(url => imgSet.add(url));
 
                     // 构建最终的图片数组
                     let finalImages = [];
                     if (coverImageUrl) {
                         finalImages.push({ url: coverImageUrl });
                         // 添加其他图片，排除封面图
-                        Array.from(imgSet)
+                        Array.from(validImages)
                             .filter(url => url !== coverImageUrl)
                             .forEach(url => finalImages.push({ url }));
                     } else {
-                        finalImages = Array.from(imgSet).map(url => ({ url }));
+                        finalImages = Array.from(validImages).map(url => ({ url }));
                     }
 
                     return {
