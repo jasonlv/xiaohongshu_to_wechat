@@ -602,6 +602,15 @@ function cleanText(text) {
         .trim();
 }
 
+// 添加一个辅助函数来清理 HTML 标签
+function stripHtml(html) {
+    return html
+        .replace(/<[^>]+>/g, '') // 移除所有 HTML 标签
+        .replace(/&nbsp;/g, ' ') // 替换 HTML 实体
+        .replace(/\s+/g, ' ') // 将多个空格合并为一个
+        .trim();
+}
+
 // 修改创建草稿的部分
 app.post('/api/wechat/draft', async (req, res) => {
     try {
@@ -720,7 +729,8 @@ app.post('/api/wechat/draft', async (req, res) => {
             articles: [{
                 title: cleanedTitle,
                 author: '',
-                digest: article.content.slice(0, 120).replace(/\n/g, ' '), // 摘要中的换行替换为空格
+                // 先清理 HTML 标签，再生成摘要
+                digest: stripHtml(article.content).slice(0, 120).replace(/\n/g, ' '),
                 content: content,
                 content_source_url: '',
                 thumb_media_id: uploadedImages[0].mediaId,
