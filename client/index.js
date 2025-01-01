@@ -268,9 +268,7 @@ class App {
         if (!container) return;
 
         // 使用当前域名构建完整的图片 URL
-        const baseUrl = window.location.hostname === 'localhost' 
-            ? 'http://localhost:8080'
-            : `https://${window.location.hostname}`;
+        const baseUrl = window.location.origin;  // 使用 origin 替代手动拼接
 
         container.innerHTML = `
             <div class="note-preview">
@@ -286,7 +284,7 @@ class App {
                             <img src="${baseUrl}${img.url}" 
                                  alt="笔记图片 ${index + 1}" 
                                  loading="lazy"
-                                 onerror="this.onerror=null; this.src='/assets/placeholder.jpg';">
+                                 onerror="this.onerror=null; this.src='${baseUrl}/assets/placeholder.jpg';">
                         </div>
                     `).join('')}
                 </div>
@@ -316,11 +314,9 @@ class App {
 
         try {
             showStatus('正在发布...');
-            // 确保图片 URL 是完整的
-            const baseUrl = window.location.hostname === 'localhost' 
-                ? 'http://localhost:8080'
-                : `https://${window.location.hostname}`;
+            const baseUrl = window.location.origin;
 
+            // 确保图片 URL 是完整的
             const processedNote = {
                 ...note,
                 images: note.images.map(img => ({
@@ -334,6 +330,7 @@ class App {
             this.saveLastState();
         } catch (error) {
             showStatus('发布失败: ' + error.message);
+            console.error('发布失败:', error);
         }
     }
 }

@@ -13,10 +13,19 @@ const IMAGES_DIR = process.env.NODE_ENV === 'production'
     ? '/opt/render/project/src/public/images'  // Render.com 的持久化目录
     : path.join(__dirname, '../public/images');
 
-// 确保目录存在
-fs.promises.mkdir(IMAGES_DIR, { recursive: true })
-    .then(() => console.log('图片目录已创建:', IMAGES_DIR))
-    .catch(err => console.error('创建图片目录失败:', err));
+// 在应用启动时确保所有必要的目录都存在
+const ASSETS_DIR = path.join(__dirname, '../public/assets');
+fs.mkdirSync(ASSETS_DIR, { recursive: true });
+fs.mkdirSync(IMAGES_DIR, { recursive: true });
+
+// 检查并生成占位图片
+const PLACEHOLDER_PATH = path.join(ASSETS_DIR, 'placeholder.jpg');
+if (!fs.existsSync(PLACEHOLDER_PATH)) {
+    console.log('占位图片不存在，需要生成');
+    require('../scripts/generatePlaceholder.js');
+} else {
+    console.log('占位图片已存在');
+}
 
 const app = express();
 
@@ -41,25 +50,19 @@ app.use((req, res, next) => {
 app.use(express.static(path.join(__dirname, '../public')));
 app.use('/client', express.static(path.join(__dirname, '../client')));
 
-// 修改占位图片的处理
-const PLACEHOLDER_PATH = path.join(__dirname, '../public/assets/placeholder.jpg');
-
-// 在应用启动时确保目录存在并复制占位图片
-fs.mkdirSync(IMAGES_DIR, { recursive: true });
-if (!fs.existsSync(PLACEHOLDER_PATH)) {
-    console.log('占位图片不存在，需要生成');
-    require('../scripts/generatePlaceholder.js');
-} else {
-    console.log('占位图片已存在');
-}
-
 // 添加图片静态服务
 app.use('/images', (req, res, next) => {
+    const filePath = path.join(IMAGES_DIR, req.url);
     console.log('请求图片:', {
         url: req.url,
-        path: path.join(IMAGES_DIR, req.url),
-        exists: fs.existsSync(path.join(IMAGES_DIR, req.url))
+        path: filePath,
+        exists: fs.existsSync(filePath)
     });
+    if (!fs.existsSync(filePath)) {
+        console.log('图片不存在，使用占位图片');
+        res.redirect('/assets/placeholder.jpg');
+        return;
+    }
     next();
 }, express.static(IMAGES_DIR));
 
@@ -67,6 +70,11 @@ app.use('/images', (req, res, next) => {
 app.use((req, res, next) => {
     if (!req.timedout) next();
 });
+
+// 在文件开头添加 HOST 配置
+const HOST = process.env.NODE_ENV === 'production'
+    ? 'https://calligraphycharsselector.onrender.com'
+    : 'http://localhost:8080';
 
 class XiaohongshuCrawler {
     constructor() {
@@ -519,19 +527,15 @@ class XiaohongshuCrawler {
                     await fs.promises.writeFile(filePath, buffer);
                     console.log('图片已保存:', filePath);
                     
-                    // 返回完整的 URL 路径
-                    const baseUrl = process.env.NODE_ENV === 'production'
-                        ? `https://${process.env.HOST || 'calligraphycharsselector.onrender.com'}`
-                        : 'http://localhost:8080';
-
+                    // 返回正确的 URL 路径
                     return {
-                        url: `${baseUrl}/images/${fileName}`,
+                        url: `/images/${fileName}`,  // 使用相对路径
                         originalUrl: image.url
                     };
                 } catch (error) {
                     console.error('保存图片失败:', error);
                     return {
-                        url: `${baseUrl}/assets/placeholder.jpg`,
+                        url: '/assets/placeholder.jpg',  // 使用相对路径
                         originalUrl: image.url
                     };
                 }
