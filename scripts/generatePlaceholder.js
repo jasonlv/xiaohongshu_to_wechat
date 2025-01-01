@@ -3,7 +3,10 @@ const path = require('path');
 const fs = require('fs');
 
 // 确保目录存在
-const assetsDir = path.join(__dirname, '../public/assets');
+const assetsDir = process.env.NODE_ENV === 'production'
+    ? '/opt/render/project/src/public/assets'
+    : path.join(__dirname, '../public/assets');
+
 fs.mkdirSync(assetsDir, { recursive: true });
 
 // 创建一个 200x200 的灰色占位图片，带有文字

@@ -281,6 +281,8 @@ class App {
                             <img src="${img.url}" 
                                  alt="笔记图片 ${index + 1}" 
                                  loading="lazy"
+                                 crossorigin="anonymous"
+                                 referrerpolicy="no-referrer"
                                  onerror="this.onerror=null; this.src='/assets/placeholder.jpg';">
                         </div>
                     `).join('')}

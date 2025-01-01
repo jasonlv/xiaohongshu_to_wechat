@@ -13,21 +13,50 @@ const fs = require('fs');
 const cloudinary = require('cloudinary').v2;
 
 const IMAGES_DIR = process.env.NODE_ENV === 'production'
-    ? '/data/images'  // Render 的持久化目录
+    ? path.join('/opt/render/project/src/public/images')  // Render.com 的目录
     : path.join(__dirname, '../public/images');
 
 // 在应用启动时确保所有必要的目录都存在
-const ASSETS_DIR = path.join(__dirname, '../public/assets');
-fs.mkdirSync(ASSETS_DIR, { recursive: true });
-fs.mkdirSync(IMAGES_DIR, { recursive: true });
+const ASSETS_DIR = path.join(process.env.NODE_ENV === 'production'
+    ? '/opt/render/project/src/public/assets'  // Render.com 的目录
+    : path.join(__dirname, '../public/assets'));
+
+// 使用 try-catch 包裹目录创建
+try {
+    fs.mkdirSync(ASSETS_DIR, { recursive: true });
+    fs.mkdirSync(IMAGES_DIR, { recursive: true });
+    console.log('目录创建成功:', {
+        ASSETS_DIR,
+        IMAGES_DIR
+    });
+} catch (error) {
+    console.error('创建目录失败:', error);
+}
 
 // 检查并生成占位图片
 const PLACEHOLDER_PATH = path.join(ASSETS_DIR, 'placeholder.jpg');
 if (!fs.existsSync(PLACEHOLDER_PATH)) {
     console.log('占位图片不存在，需要生成');
-    require('../scripts/generatePlaceholder.js');
+    try {
+        require('../scripts/generatePlaceholder.js');
+    } catch (error) {
+        console.error('生成占位图片失败:', error);
+    }
 } else {
     console.log('占位图片已存在');
+}
+
+// 将 retryOperation 函数移到全局作用域
+async function retryOperation(operation, maxRetries = 3, delay = 1000) {
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            return await operation();
+        } catch (error) {
+            if (i === maxRetries - 1) throw error;
+            console.log(`操作失败，${i + 1}/${maxRetries} 次重试...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
 }
 
 const app = express();
@@ -515,41 +544,49 @@ class XiaohongshuCrawler {
             // 保存图片到服务器
             await fs.promises.mkdir(IMAGES_DIR, { recursive: true });
 
+            // 修改图片上传逻辑
             detail.images = await Promise.all(detail.images.map(async (image, index) => {
                 try {
                     const buffer = Buffer.from(image.data, 'base64');
-                    const fileName = `note_${Date.now()}_${index}`;  // 移除 .jpg 扩展名
-                    
-                    // 上传到 Cloudinary，添加优化参数
-                    const result = await new Promise((resolve, reject) => {
-                        cloudinary.uploader.upload_stream(
-                            {
-                                folder: 'notes',
-                                public_id: fileName,
-                                resource_type: 'image',
-                                // 添加优化参数
-                                fetch_format: 'auto',
-                                quality: 'auto',
-                                // 限制最大尺寸
-                                transformation: [
-                                    { width: 1920, height: 1920, crop: 'limit' }
-                                ]
-                            },
-                            (error, result) => {
-                                if (error) reject(error);
-                                else resolve(result);
-                            }
-                        ).end(buffer);
+                    const fileName = `note_${Date.now()}_${index}`;
+
+                    // 使用全局的 retryOperation 函数
+                    const result = await retryOperation(async () => {
+                        return new Promise((resolve, reject) => {
+                            const uploadStream = cloudinary.uploader.upload_stream(
+                                {
+                                    folder: 'notes',
+                                    public_id: fileName,
+                                    resource_type: 'image',
+                                    fetch_format: 'auto',
+                                    quality: 'auto',
+                                    transformation: [
+                                        { width: 1920, height: 1920, crop: 'limit' }
+                                    ],
+                                    allowed_cors_origins: ['*'],
+                                    access_mode: 'public',
+                                    timeout: 60000  // 60 秒超时
+                                },
+                                (error, result) => {
+                                    if (error) reject(error);
+                                    else resolve(result);
+                                }
+                            );
+
+                            // 设置上传流的超时
+                            uploadStream.on('error', reject);
+                            uploadStream.end(buffer);
+                        });
                     });
-                    
+
                     console.log('图片已上传到 Cloudinary:', result.secure_url);
-                    
                     return {
                         url: result.secure_url,
                         originalUrl: image.url
                     };
                 } catch (error) {
                     console.error('保存图片失败:', error);
+                    // 如果上传失败，返回占位图片
                     return {
                         url: '/assets/placeholder.jpg',
                         originalUrl: image.url
@@ -776,19 +813,21 @@ app.post('/api/wechat/draft', async (req, res) => {
             try {
                 console.log(`开始上传第 ${index + 1} 张图片:`, image.url);
                 
-                // 构建完整的图片 URL
-                const fullImageUrl = new URL(image.url, `${req.protocol}://${req.get('host')}`).href;
-                console.log('完整图片URL:', fullImageUrl);
-                
-                // 下载图片
-                const imageResponse = await axios({
-                    method: 'get',
-                    url: fullImageUrl,
-                    responseType: 'arraybuffer',
-                    headers: {
-                        'Referer': 'https://www.xiaohongshu.com',
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                    }
+                // 使用全局的 retryOperation 函数
+                const imageResponse = await retryOperation(async () => {
+                    return axios({
+                        method: 'get',
+                        url: image.url,
+                        responseType: 'arraybuffer',
+                        timeout: 30000,  // 30 秒超时
+                        headers: {
+                            'Referer': 'https://www.xiaohongshu.com',
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                        },
+                        // 添加重试配置
+                        maxRedirects: 5,
+                        maxContentLength: 50 * 1024 * 1024  // 50MB
+                    });
                 });
 
                 // 使用 sharp 将图片转换为 jpg 格式
