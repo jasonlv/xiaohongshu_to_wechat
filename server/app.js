@@ -526,7 +526,7 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// 修改图片代理路由，添加更多调试信息
+// 修改图片代理路由
 app.get('/api/proxy-image', async (req, res) => {
     const { url } = req.query;
     
@@ -541,28 +541,46 @@ app.get('/api/proxy-image', async (req, res) => {
             throw new Error('Browser not initialized');
         }
 
-        // 使用 page 的上下文获取图片
-        const response = await page.evaluate(async (imageUrl) => {
-            const response = await fetch(imageUrl, {
-                credentials: 'include'  // 包含 cookies
-            });
-            const buffer = await response.arrayBuffer();
-            return Array.from(new Uint8Array(buffer));
-        }, decodeURIComponent(url));
+        // 获取当前页面的所有 cookies
+        const cookies = await page.cookies();
+        const cookieString = cookies
+            .map(cookie => `${cookie.name}=${cookie.value}`)
+            .join('; ');
 
-        // 转换回 Buffer
-        const buffer = Buffer.from(response);
+        // 使用 axios 获取图片，带上所有 cookies
+        const response = await axios({
+            method: 'get',
+            url: decodeURIComponent(url),
+            responseType: 'arraybuffer',
+            headers: {
+                'Referer': 'https://www.xiaohongshu.com',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Cookie': cookieString,
+                'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Origin': 'https://www.xiaohongshu.com'
+            }
+        });
 
+        // 设置响应头
         res.set({
-            'Content-Type': 'image/jpeg',
+            'Content-Type': response.headers['content-type'] || 'image/jpeg',
             'Cache-Control': 'public, max-age=31536000',
             'Access-Control-Allow-Origin': '*'
         });
 
-        res.send(buffer);
+        res.send(response.data);
 
     } catch (error) {
         console.error('代理图片失败:', error);
+        // 如果是 403 错误，打印更多信息
+        if (error.response?.status === 403) {
+            console.error('403 错误详情:', {
+                url: decodeURIComponent(url),
+                headers: error.response.headers,
+                cookies: await crawler.page?.cookies()
+            });
+        }
         res.status(500).send('Error fetching image');
     }
 });
