@@ -11,6 +11,7 @@ COPY . .
 
 # 创建并设置权限
 RUN mkdir -p /opt/render/project/src/public/images && \
-    chmod -R 777 /opt/render/project/src/public/images
+    mkdir -p /opt/render/project/src/public/assets && \
+    chmod -R 777 /opt/render/project/src/public
 
 CMD ["npm", "start"] 

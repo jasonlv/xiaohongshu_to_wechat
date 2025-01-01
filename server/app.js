@@ -525,17 +525,21 @@ class XiaohongshuCrawler {
                     const filePath = path.join(IMAGES_DIR, fileName);
                     
                     await fs.promises.writeFile(filePath, buffer);
-                    console.log('图片已保存:', filePath);
+                    console.log('图片已保存:', {
+                        filePath,
+                        exists: fs.existsSync(filePath),
+                        size: buffer.length
+                    });
                     
                     // 返回相对路径
                     return {
-                        url: `/images/${fileName}`,  // 使用相对路径
+                        url: `/images/${fileName}`,  // 这是正确的，因为我们配置了 /images 路由
                         originalUrl: image.url
                     };
                 } catch (error) {
                     console.error('保存图片失败:', error);
                     return {
-                        url: '/assets/placeholder.jpg',  // 使用相对路径
+                        url: '/assets/placeholder.jpg',  // 这也是正确的，因为 public 目录被映射到根路径
                         originalUrl: image.url
                     };
                 }
