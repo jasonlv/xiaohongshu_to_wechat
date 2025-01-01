@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const puppeteer = require('puppeteer');
@@ -8,9 +10,10 @@ const sharp = require('sharp');
 const { Readable } = require('stream');
 const FormData = require('form-data');
 const fs = require('fs');
+const cloudinary = require('cloudinary').v2;
 
-const IMAGES_DIR = process.env.NODE_ENV === 'production' 
-    ? '/opt/render/project/src/public/images'  // Render.com 的持久化目录
+const IMAGES_DIR = process.env.NODE_ENV === 'production'
+    ? '/data/images'  // Render 的持久化目录
     : path.join(__dirname, '../public/images');
 
 // 在应用启动时确保所有必要的目录都存在
@@ -51,20 +54,7 @@ app.use(express.static(path.join(__dirname, '../public')));
 app.use('/client', express.static(path.join(__dirname, '../client')));
 
 // 添加图片静态服务
-app.use('/images', (req, res, next) => {
-    const filePath = path.join(IMAGES_DIR, req.url);
-    console.log('请求图片:', {
-        url: req.url,
-        path: filePath,
-        exists: fs.existsSync(filePath)
-    });
-    if (!fs.existsSync(filePath)) {
-        console.log('图片不存在，使用占位图片');
-        res.redirect('/assets/placeholder.jpg');
-        return;
-    }
-    next();
-}, express.static(IMAGES_DIR));
+app.use('/images', express.static(IMAGES_DIR));
 
 // 添加错误恢复中间件
 app.use((req, res, next) => {
@@ -75,6 +65,13 @@ app.use((req, res, next) => {
 const HOST = process.env.NODE_ENV === 'production'
     ? 'https://calligraphycharsselector.onrender.com'
     : 'http://localhost:8080';
+
+// 配置 Cloudinary
+cloudinary.config({ 
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'dlzxaf7wa', 
+    api_key: process.env.CLOUDINARY_API_KEY || '352345732876151', 
+    api_secret: process.env.CLOUDINARY_API_SECRET  // 必须从环境变量获取
+});
 
 class XiaohongshuCrawler {
     constructor() {
@@ -521,25 +518,40 @@ class XiaohongshuCrawler {
             detail.images = await Promise.all(detail.images.map(async (image, index) => {
                 try {
                     const buffer = Buffer.from(image.data, 'base64');
-                    const fileName = `note_${Date.now()}_${index}.jpg`;
-                    const filePath = path.join(IMAGES_DIR, fileName);
+                    const fileName = `note_${Date.now()}_${index}`;  // 移除 .jpg 扩展名
                     
-                    await fs.promises.writeFile(filePath, buffer);
-                    console.log('图片已保存:', {
-                        filePath,
-                        exists: fs.existsSync(filePath),
-                        size: buffer.length
+                    // 上传到 Cloudinary，添加优化参数
+                    const result = await new Promise((resolve, reject) => {
+                        cloudinary.uploader.upload_stream(
+                            {
+                                folder: 'notes',
+                                public_id: fileName,
+                                resource_type: 'image',
+                                // 添加优化参数
+                                fetch_format: 'auto',
+                                quality: 'auto',
+                                // 限制最大尺寸
+                                transformation: [
+                                    { width: 1920, height: 1920, crop: 'limit' }
+                                ]
+                            },
+                            (error, result) => {
+                                if (error) reject(error);
+                                else resolve(result);
+                            }
+                        ).end(buffer);
                     });
                     
-                    // 返回相对路径
+                    console.log('图片已上传到 Cloudinary:', result.secure_url);
+                    
                     return {
-                        url: `/images/${fileName}`,  // 这是正确的，因为我们配置了 /images 路由
+                        url: result.secure_url,
                         originalUrl: image.url
                     };
                 } catch (error) {
                     console.error('保存图片失败:', error);
                     return {
-                        url: '/assets/placeholder.jpg',  // 这也是正确的，因为 public 目录被映射到根路径
+                        url: '/assets/placeholder.jpg',
                         originalUrl: image.url
                     };
                 }
