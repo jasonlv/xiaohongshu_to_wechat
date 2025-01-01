@@ -541,46 +541,55 @@ app.get('/api/proxy-image', async (req, res) => {
             throw new Error('Browser not initialized');
         }
 
-        // 获取当前页面的所有 cookies
-        const cookies = await page.cookies();
-        const cookieString = cookies
-            .map(cookie => `${cookie.name}=${cookie.value}`)
-            .join('; ');
+        // 使用 Puppeteer 访问图片并模拟用户行为
+        const imageBuffer = await page.evaluate(async (imageUrl) => {
+            // 创建一个新的 img 元素
+            const img = document.createElement('img');
+            img.src = imageUrl;
+            document.body.appendChild(img);
 
-        // 使用 axios 获取图片，带上所有 cookies
-        const response = await axios({
-            method: 'get',
-            url: decodeURIComponent(url),
-            responseType: 'arraybuffer',
-            headers: {
-                'Referer': 'https://www.xiaohongshu.com',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Cookie': cookieString,
-                'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
-                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                'Origin': 'https://www.xiaohongshu.com'
-            }
-        });
+            // 等待图片加载完成
+            await new Promise((resolve, reject) => {
+                img.onload = resolve;
+                img.onerror = reject;
+                // 5秒超时
+                setTimeout(reject, 5000);
+            });
+
+            // 模拟鼠标移动到图片上
+            img.dispatchEvent(new MouseEvent('mouseover'));
+            
+            // 模拟点击图片
+            img.click();
+            
+            // 获取图片数据
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            
+            // 清理
+            document.body.removeChild(img);
+            
+            // 返回 base64 数据
+            return canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+        }, decodeURIComponent(url));
+
+        // 转换 base64 为 buffer
+        const buffer = Buffer.from(imageBuffer, 'base64');
 
         // 设置响应头
         res.set({
-            'Content-Type': response.headers['content-type'] || 'image/jpeg',
+            'Content-Type': 'image/jpeg',
             'Cache-Control': 'public, max-age=31536000',
             'Access-Control-Allow-Origin': '*'
         });
 
-        res.send(response.data);
+        res.send(buffer);
 
     } catch (error) {
         console.error('代理图片失败:', error);
-        // 如果是 403 错误，打印更多信息
-        if (error.response?.status === 403) {
-            console.error('403 错误详情:', {
-                url: decodeURIComponent(url),
-                headers: error.response.headers,
-                cookies: await crawler.page?.cookies()
-            });
-        }
         res.status(500).send('Error fetching image');
     }
 });
