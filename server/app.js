@@ -331,112 +331,83 @@ class XiaohongshuCrawler {
 
     async fetchNoteDetail(url) {
         try {
-            await this.initialize();
-            
-            // 访问笔记页面
-            await this.page.goto(url, {
-                waitUntil: 'networkidle2',
-                timeout: 60000
-            });
-
-            // 等待页面加载
-            await this.delay(2000);
-
-            // 模拟滚动和图片查看行为
-            await this.page.evaluate(() => {
-                // 模拟滚动
-                window.scrollBy(0, 500);
-                // 触发滚动事件
-                window.dispatchEvent(new Event('scroll'));
-            });
-
-            await this.delay(1000);
-
-            // 模拟点击图片行为
-            const images = await this.page.$$('.swiper-slide img');
-            for (const img of images) {
-                await img.click();
-                await this.delay(500);
+            if (!this.page) {
+                await this.initialize();
             }
 
-            // 获取笔记详情
-            const detail = await this.page.evaluate(() => {
-                try {
-                    // 获取标题
-                    const title = document.querySelector('#detail-title')?.textContent?.trim() || 
-                                document.querySelector('.title')?.textContent?.trim() || 
-                                '无标题';
+            // 导航到笔记页面
+            await this.page.goto(url, {
+                waitUntil: 'networkidle0',
+                timeout: 30000
+            });
 
-                    // 获取正文内容
-                    const contentElement = document.querySelector('#detail-desc') || 
-                                        document.querySelector('.desc') || 
-                                        document.querySelector('.content');
-                    
-                    let content = '';
-                    if (contentElement) {
-                        // 克隆节点以避免修改原始DOM
-                        const clonedElement = contentElement.cloneNode(true);
-                        
-                        // 移除表情包图片
-                        clonedElement.querySelectorAll('img.note-content-emoji').forEach(img => img.remove());
-                        
-                        // 获取纯文本内容，保留换行
-                        content = clonedElement.textContent
-                            .replace(/\[小红书表情\]/g, '')
-                            .replace(/\[[^\]]+\]/g, '')
-                            .split('\n')
-                            .map(line => line.trim())
-                            .filter(line => line)
-                            .join('\n');
-                    }
+            // 等待内容加载
+            await this.page.waitForSelector('.note-content', { timeout: 10000 });
 
-                    // 获取封面图和所有图片
-                    const coverImg = document.querySelector('.cover-image img');
-                    const coverImageUrl = coverImg ? 
-                        (coverImg.getAttribute('data-src') || coverImg.src).split('?')[0].replace('http://', 'https://') : 
-                        null;
+            // 模拟滚动以加载所有图片
+            await this.page.evaluate(() => {
+                return new Promise((resolve) => {
+                    let totalHeight = 0;
+                    const distance = 100;
+                    const timer = setInterval(() => {
+                        const scrollHeight = document.body.scrollHeight;
+                        window.scrollBy(0, distance);
+                        totalHeight += distance;
 
-                    // 获取图片时确保已加载
-                    const imgElements = document.querySelectorAll('.swiper-slide img');
-                    const validImages = Array.from(imgElements)
-                        .map(img => {
-                            // 确保图片已加载
-                            if (img.complete && img.naturalHeight !== 0) {
-                                const url = (img.getAttribute('data-src') || img.src).split('?')[0];
-                                if (url && 
-                                    !url.includes('comment') && 
-                                    !url.includes('avatar') && 
-                                    !url.includes('emoji')) {
-                                    return url.replace('http://', 'https://');
-                                }
+                        if (totalHeight >= scrollHeight) {
+                            clearInterval(timer);
+                            resolve();
+                        }
+                    }, 100);
+                });
+            });
+
+            // 等待图片加载完成
+            await this.page.waitForFunction(() => {
+                const images = document.querySelectorAll('.swiper-slide img');
+                return Array.from(images).every(img => img.complete);
+            }, { timeout: 10000 });
+
+            // 获取笔记详情和图片数据
+            const detail = await this.page.evaluate(async () => {
+                const title = document.querySelector('.title')?.textContent?.trim() || '无标题';
+                const content = document.querySelector('.content')?.textContent?.trim() || '';
+
+                // 获取图片元素
+                const imgElements = document.querySelectorAll('.swiper-slide img');
+                const images = [];
+
+                for (const img of imgElements) {
+                    if (img.complete && img.naturalHeight !== 0) {
+                        const url = (img.getAttribute('data-src') || img.src).split('?')[0];
+                        if (url && !url.includes('comment') && !url.includes('avatar') && !url.includes('emoji')) {
+                            // 获取图片数据
+                            try {
+                                const response = await fetch(url);
+                                const blob = await response.blob();
+                                const base64 = await new Promise((resolve) => {
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                                    reader.readAsDataURL(blob);
+                                });
+
+                                images.push({
+                                    url,
+                                    data: base64
+                                });
+                            } catch (error) {
+                                console.error('获取图片数据失败:', error);
                             }
-                            return null;
-                        })
-                        .filter(Boolean);
-
-                    // 构建最终的图片数组
-                    let finalImages = [];
-                    if (coverImageUrl) {
-                        finalImages.push({ url: coverImageUrl });
-                        // 添加其他图片，排除封面图
-                        Array.from(validImages)
-                            .filter(url => url !== coverImageUrl)
-                            .forEach(url => finalImages.push({ url }));
-                    } else {
-                        finalImages = Array.from(validImages).map(url => ({ url }));
+                        }
                     }
-
-                    return {
-                        title,
-                        content,
-                        images: finalImages,
-                        coverImage: coverImageUrl || '',
-                        url: window.location.href
-                    };
-                } catch (error) {
-                    console.error('处理页面内容时出错:', error);
-                    throw error;
                 }
+
+                return {
+                    title,
+                    content,
+                    images,
+                    url: window.location.href
+                };
             });
 
             return detail;
@@ -528,66 +499,47 @@ app.post('/api/login', async (req, res) => {
 
 // 修改图片代理路由
 app.get('/api/proxy-image', async (req, res) => {
-    const { url } = req.query;
+    const { url, data } = req.query;
     
-    if (!url) {
-        return res.status(400).send('Missing URL parameter');
+    if (!url && !data) {
+        return res.status(400).send('Missing URL or image data');
     }
 
     try {
-        // 使用 crawler 的 page 对象来获取图片
-        const page = crawler.page;
-        if (!page) {
-            throw new Error('Browser not initialized');
-        }
-
-        // 使用 Puppeteer 访问图片并模拟用户行为
-        const imageBuffer = await page.evaluate(async (imageUrl) => {
-            // 创建一个新的 img 元素
-            const img = document.createElement('img');
-            img.src = imageUrl;
-            document.body.appendChild(img);
-
-            // 等待图片加载完成
-            await new Promise((resolve, reject) => {
-                img.onload = resolve;
-                img.onerror = reject;
-                // 5秒超时
-                setTimeout(reject, 5000);
+        if (data) {
+            // 如果有图片数据，直接返回
+            const buffer = Buffer.from(data, 'base64');
+            res.set({
+                'Content-Type': 'image/jpeg',
+                'Cache-Control': 'public, max-age=31536000',
+                'Access-Control-Allow-Origin': '*'
             });
+            res.send(buffer);
+        } else {
+            // 如果只有 URL，使用 Puppeteer 的上下文获取
+            const page = crawler.page;
+            if (!page) {
+                throw new Error('Browser not initialized');
+            }
 
-            // 模拟鼠标移动到图片上
-            img.dispatchEvent(new MouseEvent('mouseover'));
-            
-            // 模拟点击图片
-            img.click();
-            
-            // 获取图片数据
-            const canvas = document.createElement('canvas');
-            canvas.width = img.naturalWidth;
-            canvas.height = img.naturalHeight;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0);
-            
-            // 清理
-            document.body.removeChild(img);
-            
-            // 返回 base64 数据
-            return canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
-        }, decodeURIComponent(url));
+            const imageData = await page.evaluate(async (imageUrl) => {
+                const response = await fetch(imageUrl);
+                const blob = await response.blob();
+                return new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                    reader.readAsDataURL(blob);
+                });
+            }, decodeURIComponent(url));
 
-        // 转换 base64 为 buffer
-        const buffer = Buffer.from(imageBuffer, 'base64');
-
-        // 设置响应头
-        res.set({
-            'Content-Type': 'image/jpeg',
-            'Cache-Control': 'public, max-age=31536000',
-            'Access-Control-Allow-Origin': '*'
-        });
-
-        res.send(buffer);
-
+            const buffer = Buffer.from(imageData, 'base64');
+            res.set({
+                'Content-Type': 'image/jpeg',
+                'Cache-Control': 'public, max-age=31536000',
+                'Access-Control-Allow-Origin': '*'
+            });
+            res.send(buffer);
+        }
     } catch (error) {
         console.error('代理图片失败:', error);
         res.status(500).send('Error fetching image');
