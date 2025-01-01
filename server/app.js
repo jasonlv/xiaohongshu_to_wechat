@@ -7,6 +7,7 @@ const axios = require('axios');
 const sharp = require('sharp');
 const { Readable } = require('stream');
 const FormData = require('form-data');
+const fs = require('fs');
 
 const app = express();
 
@@ -35,6 +36,9 @@ app.use('/client', express.static(path.join(__dirname, '../client')));
 app.use((req, res, next) => {
     if (!req.timedout) next();
 });
+
+// 添加图片静态服务
+app.use('/images', express.static(path.join(__dirname, '../public/images')));
 
 class XiaohongshuCrawler {
     constructor() {
@@ -335,7 +339,6 @@ class XiaohongshuCrawler {
                 await this.initialize();
             }
 
-            // 导航到笔记页面
             await this.page.goto(url, {
                 waitUntil: 'networkidle0',
                 timeout: 30000
@@ -344,60 +347,126 @@ class XiaohongshuCrawler {
             // 等待内容加载
             await this.page.waitForSelector('.note-content', { timeout: 10000 });
 
-            // 模拟滚动以加载所有图片
+            // 模拟滚动和点击行为
             await this.page.evaluate(() => {
-                return new Promise((resolve) => {
-                    let totalHeight = 0;
-                    const distance = 100;
-                    const timer = setInterval(() => {
-                        const scrollHeight = document.body.scrollHeight;
-                        window.scrollBy(0, distance);
-                        totalHeight += distance;
-
-                        if (totalHeight >= scrollHeight) {
-                            clearInterval(timer);
-                            resolve();
-                        }
-                    }, 100);
-                });
+                window.scrollBy(0, 500);
+                window.dispatchEvent(new Event('scroll'));
             });
 
-            // 等待图片加载完成
-            await this.page.waitForFunction(() => {
-                const images = document.querySelectorAll('.swiper-slide img');
-                return Array.from(images).every(img => img.complete);
-            }, { timeout: 10000 });
+            await this.delay(1000);
 
-            // 获取笔记详情和图片数据
+            // 获取笔记详情
             const detail = await this.page.evaluate(async () => {
-                const title = document.querySelector('.title')?.textContent?.trim() || '无标题';
-                const content = document.querySelector('.content')?.textContent?.trim() || '';
+                // 使用更精确的选择器获取标题和内容
+                const titleSelectors = [
+                    '.note-detail .title h1',           // 新版详情页标题
+                    '.note-content .title h1',          // 旧版详情页标题
+                    '.note-detail .title',              // 备选标题选择器
+                    '.note-content .title',             // 备选标题选择器
+                    'h1.title',                         // 通用标题选择器
+                ];
 
-                // 获取图片元素
-                const imgElements = document.querySelectorAll('.swiper-slide img');
+                const contentSelectors = [
+                    '.note-detail .content .desc',      // 新版详情页内容
+                    '.note-content .content .desc',     // 旧版详情页内容
+                    '.note-detail .desc',               // 备选内容选择器
+                    '.note-content .desc',              // 备选内容选择器
+                    '#detail-desc',                     // 特定内容选择器
+                    '.content .desc'                    // 通用内容选择器
+                ];
+
+                // 获取标题
+                let title = '无标题';
+                for (const selector of titleSelectors) {
+                    const element = document.querySelector(selector);
+                    if (element) {
+                        title = element.textContent.trim();
+                        break;
+                    }
+                }
+
+                // 获取内容
+                let content = '';
+                for (const selector of contentSelectors) {
+                    const element = document.querySelector(selector);
+                    if (element) {
+                        // 克隆节点以避免修改原始DOM
+                        const clonedElement = element.cloneNode(true);
+                        
+                        // 移除表情包图片和其他无关元素
+                        clonedElement.querySelectorAll('img.note-content-emoji, .comment-item, .comment-wrapper').forEach(el => el.remove());
+                        
+                        // 获取纯文本内容
+                        content = clonedElement.textContent
+                            .replace(/\[小红书表情\]/g, '')
+                            .replace(/\[[^\]]+\]/g, '')
+                            .split('\n')
+                            .map(line => line.trim())
+                            .filter(line => line)
+                            .join('\n');
+                        break;
+                    }
+                }
+
+                // 获取图片
+                const imgSelectors = [
+                    '.swiper-slide:not(.swiper-slide-duplicate) .note-slider-img',  // 主要选择器
+                    '.note-detail img[src*="xhscdn.com"]:not(.avatar-item):not(.note-content-emoji)',
+                    '.note-content img[src*="xhscdn.com"]:not(.avatar-item):not(.note-content-emoji)',
+                    '.main-image img',  // 备用选择器
+                    'img[src*="xhscdn.com"]:not(.avatar-item):not(.note-content-emoji)'  // 通用选择器
+                ];
+
                 const images = [];
+                for (const selector of imgSelectors) {
+                    const imgElements = document.querySelectorAll(selector);
+                    console.log(`使用选择器 ${selector} 找到图片:`, imgElements.length);
+                    
+                    if (imgElements.length > 0) {
+                        for (const img of imgElements) {
+                            if (img.complete && img.naturalHeight !== 0) {
+                                const url = (img.getAttribute('data-src') || img.src).split('?')[0];
+                                if (url && !url.includes('comment') && !url.includes('avatar') && !url.includes('emoji')) {
+                                    try {
+                                        // 创建一个新的 img 元素来加载原始图片
+                                        const fullImg = new Image();
+                                        fullImg.crossOrigin = 'anonymous';
+                                        fullImg.src = url.replace('http://', 'https://');
 
-                for (const img of imgElements) {
-                    if (img.complete && img.naturalHeight !== 0) {
-                        const url = (img.getAttribute('data-src') || img.src).split('?')[0];
-                        if (url && !url.includes('comment') && !url.includes('avatar') && !url.includes('emoji')) {
-                            // 获取图片数据
-                            try {
-                                const response = await fetch(url);
-                                const blob = await response.blob();
-                                const base64 = await new Promise((resolve) => {
-                                    const reader = new FileReader();
-                                    reader.onloadend = () => resolve(reader.result.split(',')[1]);
-                                    reader.readAsDataURL(blob);
-                                });
+                                        // 等待图片加载
+                                        await new Promise((resolve, reject) => {
+                                            fullImg.onload = resolve;
+                                            fullImg.onerror = reject;
+                                            setTimeout(resolve, 3000); // 超时保护
+                                        });
 
-                                images.push({
-                                    url,
-                                    data: base64
-                                });
-                            } catch (error) {
-                                console.error('获取图片数据失败:', error);
+                                        // 使用 canvas 获取图片数据
+                                        const canvas = document.createElement('canvas');
+                                        canvas.width = fullImg.naturalWidth || 1920;
+                                        canvas.height = fullImg.naturalHeight || 1080;
+                                        const ctx = canvas.getContext('2d');
+                                        ctx.drawImage(fullImg, 0, 0);
+
+                                        // 转换为 base64
+                                        const base64Data = canvas.toDataURL('image/jpeg', 0.9);
+                                        images.push({
+                                            url,
+                                            data: base64Data.split(',')[1]
+                                        });
+                                        
+                                        console.log('成功获取图片:', url);
+                                    } catch (error) {
+                                        console.error('处理单张图片失败:', error, url);
+                                        // 如果 canvas 处理失败，至少保存 URL
+                                        images.push({ url });
+                                    }
+                                }
                             }
+                        }
+                        // 如果找到并处理了图片，就跳出循环
+                        if (images.length > 0) {
+                            console.log('成功获取图片数量:', images.length);
+                            break;
                         }
                     }
                 }
@@ -409,6 +478,23 @@ class XiaohongshuCrawler {
                     url: window.location.href
                 };
             });
+
+            // 保存图片到服务器
+            const imagesDir = path.join(__dirname, '../public/images');
+            await fs.promises.mkdir(imagesDir, { recursive: true });
+
+            detail.images = await Promise.all(detail.images.map(async (image, index) => {
+                const buffer = Buffer.from(image.data, 'base64');
+                const fileName = `note_${Date.now()}_${index}.jpg`;
+                const filePath = path.join(imagesDir, fileName);
+                
+                await fs.promises.writeFile(filePath, buffer);
+                
+                return {
+                    url: `/images/${fileName}`,
+                    originalUrl: image.url
+                };
+            }));
 
             return detail;
 
