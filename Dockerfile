@@ -9,4 +9,8 @@ COPY package*.json ./
 RUN npm ci
 COPY . .
 
+# 创建并设置权限
+RUN mkdir -p /opt/render/project/src/public/images && \
+    chmod -R 777 /opt/render/project/src/public/images
+
 CMD ["npm", "start"] 

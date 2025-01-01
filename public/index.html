@@ -6,7 +6,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>小红书笔记同步</h1>
+        <h1>小红书笔记同步工具</h1>
         
         <!-- 配置区域 -->
         <div class="config-section">
@@ -27,6 +27,13 @@
         <!-- 状态栏 -->
         <div id="statusBar" class="status-bar"></div>
     </div>
+
+    <!-- 添加图片预览模态框 -->
+    <div class="image-modal" id="imageModal" onclick="hideImageModal()">
+        <span class="modal-close">&times;</span>
+        <img class="modal-image" id="modalImage" src="" alt="大图预览">
+    </div>
+
     <script src="/client/index.js"></script>
 </body>
 </html> 

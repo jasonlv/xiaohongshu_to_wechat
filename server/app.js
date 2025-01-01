@@ -9,6 +9,15 @@ const { Readable } = require('stream');
 const FormData = require('form-data');
 const fs = require('fs');
 
+const IMAGES_DIR = process.env.NODE_ENV === 'production' 
+    ? '/opt/render/project/src/public/images'  // Render.com 的持久化目录
+    : path.join(__dirname, '../public/images');
+
+// 确保目录存在
+fs.promises.mkdir(IMAGES_DIR, { recursive: true })
+    .then(() => console.log('图片目录已创建:', IMAGES_DIR))
+    .catch(err => console.error('创建图片目录失败:', err));
+
 const app = express();
 
 // 添加更详细的 CORS 配置
@@ -28,17 +37,36 @@ app.use((req, res, next) => {
     next();
 });
 
-// 修改静态文件服务配置
+// 静态文件服务配置
 app.use(express.static(path.join(__dirname, '../public')));
 app.use('/client', express.static(path.join(__dirname, '../client')));
+
+// 修改占位图片的处理
+const PLACEHOLDER_PATH = path.join(__dirname, '../public/assets/placeholder.jpg');
+
+// 在应用启动时确保目录存在并复制占位图片
+fs.mkdirSync(IMAGES_DIR, { recursive: true });
+if (!fs.existsSync(PLACEHOLDER_PATH)) {
+    console.log('占位图片不存在，需要生成');
+    require('../scripts/generatePlaceholder.js');
+} else {
+    console.log('占位图片已存在');
+}
+
+// 添加图片静态服务
+app.use('/images', (req, res, next) => {
+    console.log('请求图片:', {
+        url: req.url,
+        path: path.join(IMAGES_DIR, req.url),
+        exists: fs.existsSync(path.join(IMAGES_DIR, req.url))
+    });
+    next();
+}, express.static(IMAGES_DIR));
 
 // 添加错误恢复中间件
 app.use((req, res, next) => {
     if (!req.timedout) next();
 });
-
-// 添加图片静态服务
-app.use('/images', express.static(path.join(__dirname, '../public/images')));
 
 class XiaohongshuCrawler {
     constructor() {
@@ -480,25 +508,30 @@ class XiaohongshuCrawler {
             });
 
             // 保存图片到服务器
-            const imagesDir = path.join(__dirname, '../public/images');
-            await fs.promises.mkdir(imagesDir, { recursive: true });
+            await fs.promises.mkdir(IMAGES_DIR, { recursive: true });
 
             detail.images = await Promise.all(detail.images.map(async (image, index) => {
                 try {
                     const buffer = Buffer.from(image.data, 'base64');
                     const fileName = `note_${Date.now()}_${index}.jpg`;
-                    const filePath = path.join(imagesDir, fileName);
+                    const filePath = path.join(IMAGES_DIR, fileName);
                     
                     await fs.promises.writeFile(filePath, buffer);
+                    console.log('图片已保存:', filePath);
                     
+                    // 返回完整的 URL 路径
+                    const baseUrl = process.env.NODE_ENV === 'production'
+                        ? `https://${process.env.HOST || 'calligraphycharsselector.onrender.com'}`
+                        : 'http://localhost:8080';
+
                     return {
-                        url: `/images/${fileName}`,  // 注意这里的路径格式
+                        url: `${baseUrl}/images/${fileName}`,
                         originalUrl: image.url
                     };
                 } catch (error) {
                     console.error('保存图片失败:', error);
                     return {
-                        url: '/images/placeholder.jpg',  // 使用默认占位图
+                        url: `${baseUrl}/assets/placeholder.jpg`,
                         originalUrl: image.url
                     };
                 }
@@ -723,10 +756,14 @@ app.post('/api/wechat/draft', async (req, res) => {
             try {
                 console.log(`开始上传第 ${index + 1} 张图片:`, image.url);
                 
+                // 构建完整的图片 URL
+                const fullImageUrl = new URL(image.url, `${req.protocol}://${req.get('host')}`).href;
+                console.log('完整图片URL:', fullImageUrl);
+                
                 // 下载图片
                 const imageResponse = await axios({
                     method: 'get',
-                    url: image.url,
+                    url: fullImageUrl,
                     responseType: 'arraybuffer',
                     headers: {
                         'Referer': 'https://www.xiaohongshu.com',

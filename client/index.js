@@ -286,7 +286,7 @@ class App {
                             <img src="${baseUrl}${img.url}" 
                                  alt="笔记图片 ${index + 1}" 
                                  loading="lazy"
-                                 onerror="this.onerror=null; this.src='/images/placeholder.jpg';">
+                                 onerror="this.onerror=null; this.src='/assets/placeholder.jpg';">
                         </div>
                     `).join('')}
                 </div>
@@ -316,9 +316,22 @@ class App {
 
         try {
             showStatus('正在发布...');
-            await this.publisher.createDraft(note);
+            // 确保图片 URL 是完整的
+            const baseUrl = window.location.hostname === 'localhost' 
+                ? 'http://localhost:8080'
+                : `https://${window.location.hostname}`;
+
+            const processedNote = {
+                ...note,
+                images: note.images.map(img => ({
+                    ...img,
+                    url: img.url.startsWith('http') ? img.url : `${baseUrl}${img.url}`
+                }))
+            };
+
+            await this.publisher.createDraft(processedNote);
             showStatus('发布成功');
-            this.saveLastState(); // 保存状态
+            this.saveLastState();
         } catch (error) {
             showStatus('发布失败: ' + error.message);
         }
@@ -469,25 +482,30 @@ async function handleNoteData() {
 function showImageModal(url) {
     const modal = document.getElementById('imageModal');
     const modalImage = document.getElementById('modalImage');
-    modalImage.src = url;
-    modal.classList.add('active');
-    // 阻止事件冒泡
-    event.stopPropagation();
+    if (modal && modalImage) {
+        modalImage.src = url;
+        modal.classList.add('active');
+        // 阻止事件冒泡
+        event?.stopPropagation();
+    }
 }
 
 // 隐藏大图
 function hideImageModal() {
     const modal = document.getElementById('imageModal');
-    modal.classList.remove('active');
+    if (modal) {
+        modal.classList.remove('active');
+    }
 }
 
 // 阻止图片点击事件冒泡到模态框
 document.addEventListener('DOMContentLoaded', () => {
-    document.body.addEventListener('click', (e) => {
-        if (e.target.classList.contains('modal-image')) {
+    const modalImage = document.getElementById('modalImage');
+    if (modalImage) {
+        modalImage.addEventListener('click', (e) => {
             e.stopPropagation();
-        }
-    });
+        });
+    }
 });
 
 // 根据环境设置 API 地址
@@ -506,7 +524,7 @@ function displayNoteDetail(detail) {
                 ${detail.images.map((image, index) => `
                     <div class="image-container">
                         <img src="${image.url}" alt="笔记图片 ${index + 1}" 
-                             onerror="this.onerror=null; this.src='/images/placeholder.jpg';"
+                             onerror="this.onerror=null; this.src='/assets/placeholder.jpg';"
                              loading="lazy">
                     </div>
                 `).join('')}
