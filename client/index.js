@@ -267,9 +267,6 @@ class App {
         const container = document.getElementById('noteDetail');
         if (!container) return;
 
-        // 使用当前域名构建完整的图片 URL
-        const baseUrl = window.location.origin;  // 使用 origin 替代手动拼接
-
         container.innerHTML = `
             <div class="note-preview">
                 <h1 class="note-title">${note.title}</h1>
@@ -280,11 +277,11 @@ class App {
                 
                 <div class="note-images">
                     ${note.images.map((img, index) => `
-                        <div class="image-container" onclick="showImageModal('${baseUrl}${img.url}')">
-                            <img src="${baseUrl}${img.url}" 
+                        <div class="image-container" onclick="showImageModal('${img.url}')">
+                            <img src="${img.url}" 
                                  alt="笔记图片 ${index + 1}" 
                                  loading="lazy"
-                                 onerror="this.onerror=null; this.src='${baseUrl}/assets/placeholder.jpg';">
+                                 onerror="this.onerror=null; this.src='/assets/placeholder.jpg';">
                         </div>
                     `).join('')}
                 </div>
@@ -316,7 +313,7 @@ class App {
             showStatus('正在发布...');
             const baseUrl = window.location.origin;
 
-            // 确保图片 URL 是完整的
+            // 只在发布时构建完整 URL
             const processedNote = {
                 ...note,
                 images: note.images.map(img => ({

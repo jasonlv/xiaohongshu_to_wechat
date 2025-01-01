@@ -527,7 +527,7 @@ class XiaohongshuCrawler {
                     await fs.promises.writeFile(filePath, buffer);
                     console.log('图片已保存:', filePath);
                     
-                    // 返回正确的 URL 路径
+                    // 返回相对路径
                     return {
                         url: `/images/${fileName}`,  // 使用相对路径
                         originalUrl: image.url
