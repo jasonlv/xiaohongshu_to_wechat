@@ -267,36 +267,29 @@ class App {
         const container = document.getElementById('noteDetail');
         if (!container) return;
 
-        // 保存图片信息到 note 对象
-        this.lastNote = {
-            ...note,
-            images: note.images
-        };
-
-        // 处理正文内容，保留换行
-        const formattedContent = note.content
-            .split('\n')
-            .map(line => `<p>${line}</p>`)
-            .join('');
+        // 使用当前域名构建完整的图片 URL
+        const baseUrl = window.location.hostname === 'localhost' 
+            ? 'http://localhost:8080'
+            : `https://${window.location.hostname}`;
 
         container.innerHTML = `
             <div class="note-preview">
                 <h1 class="note-title">${note.title}</h1>
                 
                 <div class="note-content">
-                    ${formattedContent}
+                    ${note.content.split('\n').map(line => `<p>${line}</p>`).join('')}
                 </div>
                 
                 <div class="note-images">
                     ${note.images.map((img, index) => `
-                        <div class="image-container" onclick="showImageModal('${img.url}')">
-                            <img src="${img.url}" 
+                        <div class="image-container" onclick="showImageModal('${baseUrl}${img.url}')">
+                            <img src="${baseUrl}${img.url}" 
                                  alt="笔记图片 ${index + 1}" 
                                  loading="lazy"
-                                 onerror="this.onerror=null; this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 200 200%22><rect width=%22200%22 height=%22200%22 fill=%22%23f0f0f0%22/><text x=%22100%22 y=%22100%22 text-anchor=%22middle%22 fill=%22%23999%22>图片加载失败</text></svg>';">
+                                 onerror="this.onerror=null; this.src='/images/placeholder.jpg';">
                         </div>
                     `).join('')}
-            </div>
+                </div>
                 
                 <div class="publish-options">
                     <label class="option-item">
@@ -307,17 +300,11 @@ class App {
                 
                 <button id="publishButton" class="publish-btn">发布到公众号</button>
             </div>
-
-            <!-- 图片预览模态框 -->
-            <div class="image-modal" id="imageModal" onclick="hideImageModal()">
-                <span class="modal-close">&times;</span>
-                <img class="modal-image" id="modalImage" src="" alt="大图预览">
-            </div>
         `;
 
         const publishBtn = document.getElementById('publishButton');
         if (publishBtn) {
-            publishBtn.addEventListener('click', () => this.publishNote(this.lastNote));
+            publishBtn.addEventListener('click', () => this.publishNote(note));
         }
     }
 
@@ -507,3 +494,23 @@ document.addEventListener('DOMContentLoaded', () => {
 const API_BASE_URL = window.location.hostname === 'localhost' 
     ? 'http://localhost:8080'
     : `https://${window.location.hostname}`;  // 使用当前域名 
+
+// 在显示笔记详情的函数中
+function displayNoteDetail(detail) {
+    const noteDetailDiv = document.getElementById('noteDetail');
+    noteDetailDiv.innerHTML = `
+        <div class="note-container">
+            <h2>${detail.title}</h2>
+            <div class="content">${detail.content.split('\n').map(line => `<p>${line}</p>`).join('')}</div>
+            <div class="images-grid">
+                ${detail.images.map((image, index) => `
+                    <div class="image-container">
+                        <img src="${image.url}" alt="笔记图片 ${index + 1}" 
+                             onerror="this.onerror=null; this.src='/images/placeholder.jpg';"
+                             loading="lazy">
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `;
+} 

@@ -484,16 +484,24 @@ class XiaohongshuCrawler {
             await fs.promises.mkdir(imagesDir, { recursive: true });
 
             detail.images = await Promise.all(detail.images.map(async (image, index) => {
-                const buffer = Buffer.from(image.data, 'base64');
-                const fileName = `note_${Date.now()}_${index}.jpg`;
-                const filePath = path.join(imagesDir, fileName);
-                
-                await fs.promises.writeFile(filePath, buffer);
-                
-                return {
-                    url: `/images/${fileName}`,
-                    originalUrl: image.url
-                };
+                try {
+                    const buffer = Buffer.from(image.data, 'base64');
+                    const fileName = `note_${Date.now()}_${index}.jpg`;
+                    const filePath = path.join(imagesDir, fileName);
+                    
+                    await fs.promises.writeFile(filePath, buffer);
+                    
+                    return {
+                        url: `/images/${fileName}`,  // 注意这里的路径格式
+                        originalUrl: image.url
+                    };
+                } catch (error) {
+                    console.error('保存图片失败:', error);
+                    return {
+                        url: '/images/placeholder.jpg',  // 使用默认占位图
+                        originalUrl: image.url
+                    };
+                }
             }));
 
             return detail;
