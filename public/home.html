@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>小红书笔记同步工具 - 首页</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>小红书笔记同步工具</h1>
+            <nav>
+                <a href="/home.html" class="active">首页</a>
+                <a href="/index.html">笔记同步</a>
+            </nav>
+        </header>
+
+        <!-- 用户信息区域 -->
+        <div class="user-profile">
+            <div class="user-header">
+                <img id="userAvatar" class="user-avatar" src="" alt="用户头像">
+                <div class="user-info">
+                    <h2 id="userNickname"></h2>
+                    <p id="userId"></p>
+                    <p id="userDesc"></p>
+                </div>
+            </div>
+            <div class="user-stats">
+                <div class="stat-item">
+                    <span id="followingCount">0</span>
+                    <label>关注</label>
+                </div>
+                <div class="stat-item">
+                    <span id="followerCount">0</span>
+                    <label>粉丝</label>
+                </div>
+                <div class="stat-item">
+                    <span id="likeCount">0</span>
+                    <label>获赞与收藏</label>
+                </div>
+            </div>
+        </div>
+
+        <!-- 笔记列表区域 -->
+        <div class="notes-grid" id="notesList">
+            <!-- 笔记将通过 JavaScript 动态添加 -->
+        </div>
+
+        <!-- 加载更多按钮 -->
+        <div class="load-more">
+            <button id="loadMoreBtn">加载更多</button>
+        </div>
+    </div>
+
+    <script src="/client/home.js"></script>
+</body>
+</html> 

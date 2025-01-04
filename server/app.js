@@ -998,6 +998,146 @@ async function compressImage(buffer, maxSize = 1024 * 1024, isThumb = false) {
     return compressed;
 }
 
+// 添加用户信息 API
+app.get('/api/user/info', async (req, res) => {
+    const { userId } = req.query;
+    
+    if (!userId) {
+        return res.status(400).json({ message: '缺少用户ID' });
+    }
+
+    try {
+        // 初始化爬虫
+        if (!crawler.page) {
+            await crawler.initialize();
+        }
+
+        // 访问用户主页
+        const userUrl = `https://www.xiaohongshu.com/user/profile/${userId}`;
+        await crawler.page.goto(userUrl, {
+            waitUntil: 'networkidle0',
+            timeout: 30000
+        });
+
+        // 等待用户信息加载
+        await crawler.page.waitForSelector('.user-info', { timeout: 10000 });
+
+        // 提取用户信息
+        const userInfo = await crawler.page.evaluate(() => {
+            const avatar = document.querySelector('.avatar-wrapper img')?.src || '';
+            const nickname = document.querySelector('.user-nickname .user-name')?.textContent || '';
+            const redId = document.querySelector('.user-redId')?.textContent.replace('小红书号：', '') || '';
+            const description = document.querySelector('.user-desc')?.textContent || '';
+            
+            // 获取统计数据
+            const stats = Array.from(document.querySelectorAll('.user-interactions div')).map(div => {
+                const count = div.querySelector('.count')?.textContent || '0';
+                return count.replace(/[^0-9.]/g, '');
+            });
+
+            return {
+                avatar,
+                nickname,
+                redId,
+                description,
+                following: stats[0] || '0',
+                followers: stats[1] || '0',
+                likes: stats[2] || '0'
+            };
+        });
+
+        res.json(userInfo);
+
+    } catch (error) {
+        console.error('获取用户信息失败:', error);
+        res.status(500).json({ 
+            message: '获取用户信息失败', 
+            error: error.message 
+        });
+    }
+});
+
+// 添加用户笔记列表 API
+app.get('/api/user/notes', async (req, res) => {
+    const { userId, page = 1, pageSize = 12 } = req.query;
+    
+    if (!userId) {
+        return res.status(400).json({ message: '缺少用户ID' });
+    }
+
+    try {
+        // 初始化爬虫
+        if (!crawler.page) {
+            await crawler.initialize();
+        }
+
+        // 访问用户主页
+        const userUrl = `https://www.xiaohongshu.com/user/profile/${userId}`;
+        await crawler.page.goto(userUrl, {
+            waitUntil: 'networkidle0',
+            timeout: 30000
+        });
+
+        // 等待笔记列表加载
+        await crawler.page.waitForSelector('.note-item', { timeout: 10000 });
+
+        // 模拟滚动加载更多笔记
+        const targetCount = page * pageSize;
+        let currentCount = 0;
+        
+        while (currentCount < targetCount) {
+            await crawler.page.evaluate(() => {
+                window.scrollBy(0, window.innerHeight);
+            });
+            await crawler.delay(1000);
+            
+            currentCount = await crawler.page.evaluate(() => 
+                document.querySelectorAll('.note-item').length
+            );
+            
+            // 如果滚动后笔记数量没有增加，说明已经到底
+            if (currentCount < targetCount && currentCount === await crawler.page.evaluate(() => 
+                document.querySelectorAll('.note-item').length)) {
+                break;
+            }
+        }
+
+        // 提取笔记信息
+        const notes = await crawler.page.evaluate((pageSize, currentPage) => {
+            const start = (currentPage - 1) * pageSize;
+            const items = Array.from(document.querySelectorAll('.note-item'))
+                .slice(start, start + pageSize);
+            
+            return items.map(item => {
+                const cover = item.querySelector('img')?.src || '';
+                const title = item.querySelector('.title')?.textContent.trim() || '';
+                const link = item.querySelector('a.cover')?.href || '';
+                const likes = item.querySelector('.like-wrapper .count')?.textContent || '0';
+                
+                return {
+                    cover,
+                    title,
+                    link,
+                    likes,
+                    createTime: new Date().toISOString() // 实际时间可能需要从页面解析
+                };
+            });
+        }, pageSize, parseInt(page));
+
+        res.json({
+            notes,
+            hasMore: notes.length === parseInt(pageSize)
+        });
+
+    } catch (error) {
+        console.error('获取用户笔记列表失败:', error);
+        res.status(500).json({ 
+            message: '获取用户笔记列表失败', 
+            error: error.message 
+        });
+    }
+});
+
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
     console.log(`服务器运行在 http://localhost:${PORT}`);
