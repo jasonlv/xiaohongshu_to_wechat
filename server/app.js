@@ -11,6 +11,7 @@ const { Readable } = require('stream');
 const FormData = require('form-data');
 const fs = require('fs');
 const cloudinary = require('cloudinary').v2;
+const https = require('https');
 
 const IMAGES_DIR = process.env.NODE_ENV === 'production'
     ? '/data/images'  // Render 的持久化目录
@@ -70,8 +71,76 @@ const HOST = process.env.NODE_ENV === 'production'
 cloudinary.config({ 
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'dlzxaf7wa', 
     api_key: process.env.CLOUDINARY_API_KEY || '352345732876151', 
-    api_secret: process.env.CLOUDINARY_API_SECRET  // 必须从环境变量获取
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+    secure: true
 });
+
+// 添加重试机制的工具函数
+async function retryOperation(operation, maxRetries = 3, delay = 1000) {
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            return await operation();
+        } catch (error) {
+            if (i === maxRetries - 1) throw error;
+            console.log(`操作失败，${delay/1000}秒后重试...`, error.message);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+}
+
+// 修改图片下载函数
+async function downloadImage(url) {
+    try {
+        const response = await retryOperation(async () => {
+            return await axios.get(url, {
+                responseType: 'arraybuffer',
+                timeout: 10000, // 10秒超时
+                headers: {
+                    'Referer': 'https://www.xiaohongshu.com',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                },
+                httpsAgent: new https.Agent({
+                    rejectUnauthorized: false // 忽略SSL证书错误
+                })
+            });
+        });
+        
+        return response.data;
+    } catch (error) {
+        console.error('下载图片失败:', error.message);
+        throw error;
+    }
+}
+
+// 修改图片上传函数
+async function uploadToCloudinary(imageBuffer, publicId) {
+    try {
+        return await retryOperation(async () => {
+            return await new Promise((resolve, reject) => {
+                const uploadStream = cloudinary.uploader.upload_stream(
+                    {
+                        public_id: publicId,
+                        folder: 'notes',
+                        resource_type: 'auto',
+                        timeout: 60000 // 60秒超时
+                    },
+                    (error, result) => {
+                        if (error) reject(error);
+                        else resolve(result);
+                    }
+                );
+
+                const bufferStream = new Readable();
+                bufferStream.push(imageBuffer);
+                bufferStream.push(null);
+                bufferStream.pipe(uploadStream);
+            });
+        });
+    } catch (error) {
+        console.error('上传到Cloudinary失败:', error.message);
+        throw error;
+    }
+}
 
 class XiaohongshuCrawler {
     constructor() {
@@ -1085,16 +1154,38 @@ app.get('/api/user/notes', async (req, res) => {
             });
         }, pageSize, parseInt(page));
 
+        // 处理每个笔记的图片
+        const processedNotes = await Promise.all(notes.map(async note => {
+            if (note.cover) {
+                try {
+                    // 下载并上传封面图
+                    const imageBuffer = await downloadImage(note.cover);
+                    const publicId = `note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                    const uploadResult = await uploadToCloudinary(imageBuffer, publicId);
+                    note.cover = uploadResult.secure_url;
+                } catch (error) {
+                    console.error('处理笔记封面失败:', error.message);
+                    // 使用默认封面
+                    note.cover = '/assets/placeholder.jpg';
+                }
+            }
+            return note;
+        }));
+
         res.json({
-            notes,
-            hasMore: notes.length === parseInt(pageSize)
+            notes: processedNotes,
+            hasMore: processedNotes.length === parseInt(pageSize)
         });
 
     } catch (error) {
-        console.error('获取用户笔记列表失败:', error);
+        console.error('获取笔记列表失败:', error);
         res.status(500).json({ 
-            message: '获取用户笔记列表失败', 
-            error: error.message 
+            message: '获取笔记列表失败', 
+            error: error.message,
+            data: {
+                notes: [],
+                hasMore: false
+            }
         });
     }
 });
