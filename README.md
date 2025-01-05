@@ -31,15 +31,14 @@
 
 ## 配置说明
 
-### 1. 微信公众号配置
-1. 登录微信公众平台获取 AppID 和 AppSecret
-2. 在工具首页填入 AppID 和 AppSecret
-3. 点击"保存配置"按钮
-
-### 2. 环境变量配置
+### 环境变量配置
 创建 `.env` 文件，添加以下配置：
 
 ```env
+# 微信公众号配置
+WECHAT_APP_ID=your_app_id
+WECHAT_APP_SECRET=your_app_secret
+
 # Cloudinary配置（用于图片存储）
 CLOUDINARY_CLOUD_NAME=your_cloud_name
 CLOUDINARY_API_KEY=your_api_key
@@ -69,9 +68,10 @@ cd xiaohongshu-to-wechat
 npm install
 ```
 
-3. 生成占位图片
+3. 配置环境变量
+复制 `.env.example` 到 `.env` 并填入你的配置信息：
 ```bash
-node scripts/generatePlaceholder.js
+cp .env.example .env
 ```
 
 4. 启动开发服务器
@@ -97,6 +97,8 @@ npm run dev
 4. 添加环境变量
    在 Render.com 的环境变量设置中添加：
    ```
+   WECHAT_APP_ID=your_app_id
+   WECHAT_APP_SECRET=your_app_secret
    CLOUDINARY_CLOUD_NAME=your_cloud_name
    CLOUDINARY_API_KEY=your_api_key
    CLOUDINARY_API_SECRET=your_api_secret
@@ -118,6 +120,7 @@ npm run dev
 3. 建议合理设置图片压缩参数，避免超出公众号限制
 4. 定期检查和更新配置信息
 5. 建议在本地测试无误后再部署到云端
+6. 请妥善保管你的微信公众号 AppID 和 AppSecret，不要泄露给他人
 
 ## 许可证
 
@@ -131,3 +134,5 @@ MIT License
 2. 更新具体的许可证信息
 3. 根据需要添加更多的环境变量说明
 4. 补充特定的使用限制或注意事项
+
+

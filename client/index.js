@@ -19,7 +19,7 @@ class XiaohongshuCrawler {
             const response = await fetch(
                 `${this.baseUrl}/api/note/detail?url=${encodeURIComponent(url)}`
             );
-            
+
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
                 throw new Error(errorData.message || '获取笔记详情失败');
@@ -35,24 +35,20 @@ class XiaohongshuCrawler {
 
 // 微信发布类
 class WechatPublisher {
-    constructor(appId, appSecret) {
-        this.appId = appId;
-        this.appSecret = appSecret;
+    constructor() {
         this.baseUrl = 'http://localhost:8080';
     }
 
     async createDraft(article) {
         try {
             console.log('开始发布文章:', article);
-            
+
             const response = await fetch(`${this.baseUrl}/api/wechat/draft`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    appId: this.appId,
-                    appSecret: this.appSecret,
                     article: {
                         title: article.title,
                         content: this.formatContent(article.content, article.images),
@@ -64,7 +60,7 @@ class WechatPublisher {
             });
 
             const data = await response.json();
-            
+
             if (!response.ok) {
                 throw new Error(data.message || data.details || '发布失败');
             }
@@ -81,7 +77,7 @@ class WechatPublisher {
     formatContent(content, images) {
         // 检查是否需要忽略话题标签
         const ignoreTopics = document.getElementById('ignoreTopics')?.checked;
-        
+
         // 处理正文内容
         let processedContent = content;
         if (ignoreTopics) {
@@ -100,7 +96,7 @@ class WechatPublisher {
             .map(p => `<p>${p}</p>`);
 
         // 在文章末尾添加图片
-        const imageHtml = images.map(img => 
+        const imageHtml = images.map(img =>
             `<p><img src="${img.url}" alt="笔记图片"></p>`
         ).join('');
 
@@ -112,34 +108,20 @@ class WechatPublisher {
 class App {
     constructor() {
         this.crawler = new XiaohongshuCrawler();
-        this.publisher = null;
-        this.lastNote = null; // 存储最后一次获取的笔记
+        this.publisher = new WechatPublisher();
+        this.lastNote = null;
         this.init();
     }
 
     init() {
-        try {
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', () => {
-                    this.initializeAfterDOMLoaded();
-                });
-            } else {
-                this.initializeAfterDOMLoaded();
-            }
-        } catch (error) {
-            console.error('初始化失败:', error);
-            showStatus('初始化失败: ' + error.message);
-        }
+        this.bindEvents();
+        this.restoreLastState();
     }
 
-    initializeAfterDOMLoaded() {
-        try {
-            this.bindEvents();
-            this.loadConfig();
-            this.restoreLastState(); // 恢复上次的状态
-        } catch (error) {
-            console.error('初始化组件失败:', error);
-            showStatus('初始化组件失败: ' + error.message);
+    bindEvents() {
+        const fetchButton = document.getElementById('fetchNote');
+        if (fetchButton) {
+            fetchButton.addEventListener('click', () => this.fetchNote());
         }
     }
 
@@ -147,7 +129,7 @@ class App {
     saveLastState() {
         const urlInput = document.getElementById('noteUrl');
         const noteDetail = document.getElementById('noteDetail');
-        
+
         const state = {
             url: urlInput?.value || '',
             note: this.lastNote,
@@ -163,7 +145,7 @@ class App {
             const savedState = localStorage.getItem('lastState');
             if (savedState) {
                 const state = JSON.parse(savedState);
-                
+
                 // 恢复URL输入
                 const urlInput = document.getElementById('noteUrl');
                 if (urlInput && state.url) {
@@ -179,63 +161,6 @@ class App {
         } catch (error) {
             console.error('恢复状态失败:', error);
         }
-    }
-
-    bindEvents() {
-        // 保存配置按钮
-        const saveConfigBtn = document.getElementById('saveConfig');
-        if (saveConfigBtn) {
-            saveConfigBtn.addEventListener('click', () => {
-                this.saveConfig();
-                this.saveLastState(); // 保存状态
-            });
-        }
-
-        // 获取笔记按钮
-        const fetchNoteBtn = document.getElementById('fetchNote');
-        if (fetchNoteBtn) {
-            fetchNoteBtn.addEventListener('click', () => this.fetchNote());
-        }
-
-        // URL输入框变化时保存状态
-        const urlInput = document.getElementById('noteUrl');
-        if (urlInput) {
-            urlInput.addEventListener('input', () => this.saveLastState());
-        }
-    }
-
-    loadConfig() {
-        const appId = localStorage.getItem('wxAppId');
-        const appSecret = localStorage.getItem('wxAppSecret');
-
-        const appIdInput = document.getElementById('wxAppId');
-        const appSecretInput = document.getElementById('wxAppSecret');
-
-        if (appIdInput && appId) appIdInput.value = appId;
-        if (appSecretInput && appSecret) appSecretInput.value = appSecret;
-
-        if (appId && appSecret) {
-            this.publisher = new WechatPublisher(appId, appSecret);
-        }
-    }
-
-    saveConfig() {
-        const appIdInput = document.getElementById('wxAppId');
-        const appSecretInput = document.getElementById('wxAppSecret');
-
-        if (!appIdInput || !appSecretInput) {
-            showStatus('找不到配置输入框');
-            return;
-        }
-
-        const appId = appIdInput.value.trim();
-        const appSecret = appSecretInput.value.trim();
-
-        localStorage.setItem('wxAppId', appId);
-        localStorage.setItem('wxAppSecret', appSecret);
-
-        this.publisher = new WechatPublisher(appId, appSecret);
-        showStatus('配置已保存');
     }
 
     async fetchNote() {
@@ -344,24 +269,24 @@ try {
 async function getXiaohongshuNoteData() {
     try {
         // 获取标题
-        const title = document.querySelector('#detail-title')?.textContent?.trim() || 
-                     document.querySelector('.title')?.textContent?.trim() || 
-                     '无标题';
+        const title = document.querySelector('#detail-title')?.textContent?.trim() ||
+            document.querySelector('.title')?.textContent?.trim() ||
+            '无标题';
         console.log('获取到标题:', title);
 
         // 获取正文内容
-        const contentElement = document.querySelector('#detail-desc') || 
-                             document.querySelector('.desc') || 
-                             document.querySelector('.content');
-        
+        const contentElement = document.querySelector('#detail-desc') ||
+            document.querySelector('.desc') ||
+            document.querySelector('.content');
+
         let content = '';
         if (contentElement) {
             // 克隆节点以避免修改原始DOM
             const clonedElement = contentElement.cloneNode(true);
-            
+
             // 移除表情包图片
             clonedElement.querySelectorAll('img.note-content-emoji').forEach(img => img.remove());
-            
+
             // 获取纯文本内容，保留换行
             content = clonedElement.textContent
                 .replace(/\[小红书表情\]/g, '')
@@ -385,7 +310,7 @@ async function getXiaohongshuNoteData() {
                 '.main-image img',
                 'img[src*="xhscdn.com"]:not(.avatar-item):not(.note-content-emoji)'
             ];
-            
+
             for (const selector of otherSelectors) {
                 const elements = document.querySelectorAll(selector);
                 if (elements.length > 0) {
@@ -460,11 +385,11 @@ async function handleNoteData() {
                 },
                 body: JSON.stringify(noteData)
             });
-            
+
             if (!response.ok) {
                 throw new Error('保存笔记失败');
             }
-            
+
             console.log('笔记保存成功:', noteData.title);
         } catch (error) {
             console.error('保存笔记失败:', error);
@@ -503,7 +428,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // 根据环境设置 API 地址
-const API_BASE_URL = window.location.hostname === 'localhost' 
+const API_BASE_URL = window.location.hostname === 'localhost'
     ? 'http://localhost:8080'
     : `https://${window.location.hostname}`;  // 使用当前域名 
 
