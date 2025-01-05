@@ -1,0 +1,14 @@
+{
+    "framework": {
+        "name": "custom",
+        "config": {
+            "buildCommand": "npm run build",
+            "outputPath": "dist",
+            "installCommand": "npm install"
+        }
+    },
+    "envVariables": {
+        "NODE_ENV": "production",
+        "PORT": "80"
+    }
+}

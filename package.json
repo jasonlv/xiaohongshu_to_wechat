@@ -1,10 +1,8 @@
 {
   "name": "xiaohongshu-to-wechat",
   "version": "1.0.0",
+  "description": "小红书笔记同步到微信公众号工具",
   "main": "server/app.js",
-  "engines": {
-    "node": ">=18.0.0 <22.0.0"
-  },
   "scripts": {
     "start": "node server/app.js",
     "build": "node scripts/generatePlaceholder.js && npm install puppeteer && npm install --include=optional sharp",
@@ -23,5 +21,8 @@
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0 <22.0.0"
   }
 }

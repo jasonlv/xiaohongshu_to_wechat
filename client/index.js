@@ -1,10 +1,50 @@
-// 工具函数：显示状态消息
-function showStatus(message) {
-    const statusBar = document.getElementById('statusBar');
-    if (statusBar) {
-        statusBar.textContent = message;
-        statusBar.classList.add('show');
-        setTimeout(() => statusBar.classList.remove('show'), 3000);
+// 添加状态提示相关的常量
+const STATUS_TYPES = {
+    INFO: 'info',
+    SUCCESS: 'success',
+    ERROR: 'error',
+    LOADING: 'loading'
+};
+
+// 修改状态显示函数
+function showStatus(message, type = STATUS_TYPES.INFO) {
+    const statusDiv = document.getElementById('status');
+    if (!statusDiv) return;
+
+    // 清除之前的类名
+    statusDiv.className = 'status-message';
+
+    // 添加新的类名
+    statusDiv.classList.add(`status-${type}`);
+
+    // 如果是加载状态，添加加载动画
+    if (type === STATUS_TYPES.LOADING) {
+        statusDiv.innerHTML = `
+            <div class="loading-spinner"></div>
+            <span>${message}</span>
+        `;
+    } else {
+        // 根据状态类型添加对应的图标
+        const icons = {
+            [STATUS_TYPES.SUCCESS]: '✅',
+            [STATUS_TYPES.ERROR]: '❌',
+            [STATUS_TYPES.INFO]: 'ℹ️'
+        };
+        statusDiv.innerHTML = `${icons[type] || ''} ${message}`;
+    }
+
+    // 显示状态消息
+    statusDiv.style.display = 'flex';
+
+    // 只有在成功或普通信息时才自动隐藏
+    if (type === STATUS_TYPES.SUCCESS || type === STATUS_TYPES.INFO) {
+        setTimeout(() => {
+            statusDiv.style.opacity = '0';
+            setTimeout(() => {
+                statusDiv.style.display = 'none';
+                statusDiv.style.opacity = '1';
+            }, 500);
+        }, 3000);
     }
 }
 
@@ -166,25 +206,26 @@ class App {
     async fetchNote() {
         const urlInput = document.getElementById('noteUrl');
         if (!urlInput) {
-            showStatus('找不到URL输入框');
+            showStatus('找不到URL输入框', STATUS_TYPES.ERROR);
             return;
         }
 
         const url = urlInput.value.trim();
         if (!url) {
-            showStatus('请输入笔记链接');
+            showStatus('请输入笔记链接', STATUS_TYPES.ERROR);
             return;
         }
 
         try {
-            showStatus('正在获取笔记...');
+            showStatus('正在获取笔记内容，请稍候...', STATUS_TYPES.LOADING);
             const detail = await this.crawler.fetchNoteDetail(url);
-            this.lastNote = detail; // 保存获取的笔记
+            this.lastNote = detail;
             this.displayNote(detail);
-            this.saveLastState(); // 保存状态
-            showStatus('获取成功');
+            this.saveLastState();
+            showStatus('笔记获取成功！', STATUS_TYPES.SUCCESS);
         } catch (error) {
-            showStatus('获取失败: ' + error.message);
+            showStatus(`获取失败: ${error.message}`, STATUS_TYPES.ERROR);
+            console.error('获取笔记失败:', error);
         }
     }
 
@@ -230,15 +271,14 @@ class App {
 
     async publishNote(note) {
         if (!this.publisher) {
-            showStatus('请先配置公众号信息');
+            showStatus('请先配置公众号信息', STATUS_TYPES.ERROR);
             return;
         }
 
         try {
-            showStatus('正在发布...');
+            showStatus('正在发布到公众号，请稍候...', STATUS_TYPES.LOADING);
             const baseUrl = window.location.origin;
 
-            // 只在发布时构建完整 URL
             const processedNote = {
                 ...note,
                 images: note.images.map(img => ({
@@ -248,10 +288,10 @@ class App {
             };
 
             await this.publisher.createDraft(processedNote);
-            showStatus('发布成功');
+            showStatus('发布成功！笔记已保存到公众号草稿箱', STATUS_TYPES.SUCCESS);
             this.saveLastState();
         } catch (error) {
-            showStatus('发布失败: ' + error.message);
+            showStatus(`发布失败: ${error.message}`, STATUS_TYPES.ERROR);
             console.error('发布失败:', error);
         }
     }
