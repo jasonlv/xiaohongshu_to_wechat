@@ -135,10 +135,11 @@ class WechatPublisher {
             .filter(p => p.trim())
             .map(p => `<p>${p}</p>`);
 
-        // 在文章末尾添加图片
-        const imageHtml = images.map(img =>
-            `<p><img src="${img.url}" alt="笔记图片"></p>`
-        ).join('');
+        // 按原始顺序添加图片
+        const imageHtml = images
+            .sort((a, b) => (a.originalIndex || 0) - (b.originalIndex || 0))
+            .map(img => `<p><img src="${img.url}" alt="笔记图片"></p>`)
+            .join('');
 
         return paragraphs.join('') + imageHtml;
     }
@@ -247,6 +248,7 @@ class App {
                             <img src="${img.url}" 
                                  alt="笔记图片 ${index + 1}" 
                                  loading="lazy"
+                                 data-index="${index}"
                                  onerror="this.onerror=null; this.src='/assets/placeholder.jpg';">
                         </div>
                     `).join('')}

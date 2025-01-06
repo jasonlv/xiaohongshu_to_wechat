@@ -2,11 +2,63 @@
   "name": "xiaohongshu-to-wechat",
   "version": "1.0.0",
   "description": "小红书笔记同步到微信公众号工具",
-  "main": "server/app.js",
+  "main": "electron/main.js",
+  "author": {
+    "name": "Your Name",
+    "email": "your.email@example.com"
+  },
   "scripts": {
-    "start": "node server/app.js",
+    "start": "electron .",
+    "dev": "nodemon server/app.js",
     "build": "node scripts/generatePlaceholder.js && npm install puppeteer && npm install --include=optional sharp",
-    "dev": "nodemon server/app.js"
+    "generate-icons": "node scripts/generateIcons.js",
+    "pack": "npm run generate-icons && electron-builder --dir",
+    "dist": "npm run generate-icons && electron-builder",
+    "dist:mac": "npm run generate-icons && electron-builder --mac",
+    "dist:win": "electron-builder --win --x64 --publish never --config.win.signAndEditExecutable=false"
+  },
+  "build": {
+    "appId": "com.xiaohongshu.to.wechat",
+    "productName": "小红书笔记同步工具",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "electronDownload": {
+      "cache": "./.electron",
+      "mirror": "https://npmmirror.com/mirrors/electron/"
+    },
+    "files": [
+      "public/**/*",
+      "client/**/*",
+      "server/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "小红书笔记同步工具",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico"
+    }
   },
   "dependencies": {
     "axios": "^1.6.5",
@@ -14,12 +66,15 @@
     "connect-timeout": "^1.9.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
+    "electron-store": "^8.1.0",
     "express": "^4.18.2",
     "form-data": "^4.0.0",
     "puppeteer": "^22.15.0",
     "sharp": "^0.33.5"
   },
   "devDependencies": {
+    "electron": "20.3.12",
+    "electron-builder": "23.6.0",
     "nodemon": "^3.0.2"
   },
   "engines": {
