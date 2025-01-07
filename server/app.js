@@ -664,7 +664,8 @@ class XiaohongshuCrawler {
                 const getImages = async () => {
                     const images = [];
                     const seen = new Set();
-                    const imageElements = document.querySelectorAll('img[data-src], img.note-img, .swiper-slide img');
+                    // 使用更精确的选择器，并按照它们在DOM中的顺序获取
+                    const imageElements = Array.from(document.querySelectorAll('.swiper-slide img, .note-content img[src*="xhscdn.com"]:not(.avatar-item):not(.note-content-emoji), .main-image img'));
 
                     for (const img of imageElements) {
                         // 滚动到图片位置
@@ -690,8 +691,7 @@ class XiaohongshuCrawler {
                                 images.push({
                                     url: cleanUrl,
                                     width: img.naturalWidth || 800,
-                                    height: img.naturalHeight || 800,
-                                    index: images.length // 保存原始顺序
+                                    height: img.naturalHeight || 800
                                 });
                             }
                         }
@@ -701,8 +701,7 @@ class XiaohongshuCrawler {
                         await randomDelay(200, 500);
                     }
 
-                    // 按原始顺序排序
-                    return images.sort((a, b) => a.index - b.index);
+                    return images;
                 };
 
                 // 获取标题和内容
