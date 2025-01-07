@@ -601,6 +601,31 @@ class XiaohongshuCrawler {
                 hasTouch: true  // 启用触摸支持
             });
 
+            // 注入鼠标移动轨迹模拟
+            await page.evaluateOnNewDocument(() => {
+                // 重写 MouseEvent 以添加更真实的属性
+                const originalMouseEvent = window.MouseEvent;
+                window.MouseEvent = function (type, init) {
+                    init = Object.assign({}, init, {
+                        bubbles: true,
+                        cancelable: true,
+                        view: window,
+                        detail: 1,
+                        screenX: 1,
+                        screenY: 1,
+                        clientX: 1,
+                        clientY: 1,
+                        ctrlKey: false,
+                        altKey: false,
+                        shiftKey: false,
+                        metaKey: false,
+                        button: 0,
+                        relatedTarget: null,
+                    });
+                    return new originalMouseEvent(type, init);
+                };
+            });
+
             // 访问页面
             await page.goto(url, {
                 waitUntil: ['networkidle0', 'domcontentloaded'],
@@ -615,62 +640,69 @@ class XiaohongshuCrawler {
 
             // 获取笔记详情
             const detail = await page.evaluate(async () => {
+                // 辅助函数：随机延迟
+                const randomDelay = (min, max) => new Promise(resolve => {
+                    setTimeout(resolve, Math.random() * (max - min) + min);
+                });
+
+                // 模拟滚动到图片位置
+                const smoothScroll = async (element) => {
+                    const rect = element.getBoundingClientRect();
+                    const targetY = window.scrollY + rect.top - 100;
+                    const startY = window.scrollY;
+                    const steps = 10;
+                    const stepSize = (targetY - startY) / steps;
+
+                    for (let i = 0; i < steps; i++) {
+                        window.scrollTo(0, startY + stepSize * i);
+                        await randomDelay(50, 100);
+                    }
+                    window.scrollTo(0, targetY);
+                };
+
                 // 获取图片
                 const getImages = async () => {
                     const images = [];
+                    const seen = new Set();
+                    const imageElements = document.querySelectorAll('img[data-src], img.note-img, .swiper-slide img');
 
-                    // 首先尝试获取轮播图片容器
-                    const swiperContainer = document.querySelector('.swiper-wrapper');
-                    if (swiperContainer) {
-                        // 从轮播容器中获取图片
-                        const swiperImages = Array.from(swiperContainer.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate) img'));
-                        for (const img of swiperImages) {
-                            const src = img.dataset.src || img.src;
-                            if (src && src.includes('xhscdn.com') && !src.includes('avatar') && !src.includes('emoji')) {
-                                const cleanUrl = src.split('?')[0];
-                                if (!images.some(existingImg => existingImg.url === cleanUrl)) {
-                                    images.push({
-                                        url: cleanUrl,
-                                        width: img.naturalWidth || 800,
-                                        height: img.naturalHeight || 800
-                                    });
-                                }
+                    for (const img of imageElements) {
+                        // 滚动到图片位置
+                        await smoothScroll(img);
+
+                        // 模拟鼠标悬停
+                        img.dispatchEvent(new MouseEvent('mouseover'));
+                        await randomDelay(300, 800);
+
+                        // 获取图片地址
+                        const src = img.dataset.src || img.src;
+                        if (src &&
+                            src.includes('xhscdn.com') &&
+                            !src.includes('avatar') &&
+                            !src.includes('emoji')) {
+
+                            // 清理URL，移除查询参数
+                            const cleanUrl = src.split('?')[0];
+
+                            // 检查是否已经存在这个图片
+                            if (!seen.has(cleanUrl)) {
+                                seen.add(cleanUrl);
+                                images.push({
+                                    url: cleanUrl,
+                                    width: img.naturalWidth || 800,
+                                    height: img.naturalHeight || 800,
+                                    index: images.length // 保存原始顺序
+                                });
                             }
                         }
+
+                        // 模拟鼠标移出
+                        img.dispatchEvent(new MouseEvent('mouseout'));
+                        await randomDelay(200, 500);
                     }
 
-                    // 如果没有找到轮播图片，尝试其他选择器
-                    if (images.length === 0) {
-                        // 按照优先级尝试不同的选择器
-                        const selectors = [
-                            '.note-content img[src*="xhscdn.com"]:not(.avatar):not(.note-content-emoji)',
-                            '.main-image img[src*="xhscdn.com"]',
-                            'img.note-img[src*="xhscdn.com"]'
-                        ];
-
-                        for (const selector of selectors) {
-                            const imageElements = Array.from(document.querySelectorAll(selector));
-                            if (imageElements.length > 0) {
-                                for (const img of imageElements) {
-                                    const src = img.dataset.src || img.src;
-                                    if (src && !src.includes('avatar') && !src.includes('emoji')) {
-                                        const cleanUrl = src.split('?')[0];
-                                        if (!images.some(existingImg => existingImg.url === cleanUrl)) {
-                                            images.push({
-                                                url: cleanUrl,
-                                                width: img.naturalWidth || 800,
-                                                height: img.naturalHeight || 800
-                                            });
-                                        }
-                                    }
-                                }
-                                break; // 如果找到图片就停止尝试其他选择器
-                            }
-                        }
-                    }
-
-                    console.log('找到图片数量:', images.length);
-                    return images;
+                    // 按原始顺序排序
+                    return images.sort((a, b) => a.index - b.index);
                 };
 
                 // 获取标题和内容
@@ -701,8 +733,7 @@ class XiaohongshuCrawler {
                             const uploadResult = await uploadToCloudinary(imageBuffer, publicId);
                             return {
                                 ...img,
-                                url: uploadResult.secure_url,
-                                originalIndex: index  // 保存原始索引
+                                url: uploadResult.secure_url
                             };
                         } else {
                             // 在开发环境保存到本地
@@ -711,21 +742,14 @@ class XiaohongshuCrawler {
                             await fs.promises.writeFile(filePath, imageBuffer);
                             return {
                                 ...img,
-                                url: `/images/${fileName}`,
-                                originalIndex: index  // 保存原始索引
+                                url: `/images/${fileName}`
                             };
                         }
                     } catch (error) {
                         console.error(`处理图片 ${index + 1} 失败:`, error);
-                        return {
-                            ...img,
-                            originalIndex: index  // 即使失败也保存索引
-                        };
+                        return img; // 如果处理失败，返回原始图片
                     }
                 }));
-
-                // 确保图片顺序与原始顺序一致
-                detail.images.sort((a, b) => a.originalIndex - b.originalIndex);
             }
 
             // 关闭页面
