@@ -664,43 +664,59 @@ class XiaohongshuCrawler {
                 const getImages = async () => {
                     const images = [];
                     const seen = new Set();
-                    // 使用更精确的选择器，并按照它们在DOM中的顺序获取
-                    const imageElements = Array.from(document.querySelectorAll('.swiper-slide img, .note-content img[src*="xhscdn.com"]:not(.avatar-item):not(.note-content-emoji), .main-image img'));
 
-                    for (const img of imageElements) {
-                        // 滚动到图片位置
-                        await smoothScroll(img);
-
-                        // 模拟鼠标悬停
-                        img.dispatchEvent(new MouseEvent('mouseover'));
-                        await randomDelay(300, 800);
-
-                        // 获取图片地址
-                        const src = img.dataset.src || img.src;
-                        if (src &&
-                            src.includes('xhscdn.com') &&
-                            !src.includes('avatar') &&
-                            !src.includes('emoji')) {
-
-                            // 清理URL，移除查询参数
-                            const cleanUrl = src.split('?')[0];
-
-                            // 检查是否已经存在这个图片
-                            if (!seen.has(cleanUrl)) {
-                                seen.add(cleanUrl);
+                    // 首先尝试获取轮播图中的图片
+                    const swiperImages = Array.from(document.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate) img'));
+                    if (swiperImages.length > 0) {
+                        console.log('找到轮播图片:', swiperImages.length, '张');
+                        for (const img of swiperImages) {
+                            const src = img.dataset.src || img.src;
+                            if (src && src.includes('xhscdn.com') && !seen.has(src)) {
+                                seen.add(src);
                                 images.push({
-                                    url: cleanUrl,
+                                    url: src.split('?')[0],
                                     width: img.naturalWidth || 800,
                                     height: img.naturalHeight || 800
                                 });
                             }
                         }
-
-                        // 模拟鼠标移出
-                        img.dispatchEvent(new MouseEvent('mouseout'));
-                        await randomDelay(200, 500);
                     }
 
+                    // 如果没有找到轮播图片，尝试获取正文中的图片
+                    if (images.length === 0) {
+                        console.log('未找到轮播图片，尝试获取正文图片');
+                        const contentImages = Array.from(document.querySelectorAll('.note-content img[src*="xhscdn.com"]:not(.avatar-item):not(.note-content-emoji)'));
+                        for (const img of contentImages) {
+                            const src = img.dataset.src || img.src;
+                            if (src && !seen.has(src)) {
+                                seen.add(src);
+                                images.push({
+                                    url: src.split('?')[0],
+                                    width: img.naturalWidth || 800,
+                                    height: img.naturalHeight || 800
+                                });
+                            }
+                        }
+                    }
+
+                    // 如果还是没有找到图片，尝试其他可能的选择器
+                    if (images.length === 0) {
+                        console.log('尝试其他选择器获取图片');
+                        const otherImages = Array.from(document.querySelectorAll('.main-image img[src*="xhscdn.com"], img[src*="xhscdn.com"]:not(.avatar-item):not(.note-content-emoji)'));
+                        for (const img of otherImages) {
+                            const src = img.dataset.src || img.src;
+                            if (src && !seen.has(src)) {
+                                seen.add(src);
+                                images.push({
+                                    url: src.split('?')[0],
+                                    width: img.naturalWidth || 800,
+                                    height: img.naturalHeight || 800
+                                });
+                            }
+                        }
+                    }
+
+                    console.log('最终获取到', images.length, '张图片');
                     return images;
                 };
 
@@ -1004,18 +1020,56 @@ function stripHtml(html) {
         .trim();
 }
 
+// 添加获取微信 access_token 的函数
+async function getWechatAccessToken() {
+    const appId = process.env.WECHAT_APP_ID;
+    const appSecret = process.env.WECHAT_APP_SECRET;
+
+    if (!appId || !appSecret) {
+        throw new Error('未配置微信公众号 AppID 或 AppSecret');
+    }
+
+    try {
+        const tokenUrl = `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${appId}&secret=${appSecret}`;
+        const response = await axios.get(tokenUrl);
+
+        if (response.data.errcode) {
+            const errorMsg = response.data.errmsg;
+            // 检查是否是 IP 白名单错误
+            if (errorMsg.includes('invalid ip') || errorMsg.includes('not in whitelist')) {
+                const ip = errorMsg.match(/\d+\.\d+\.\d+\.\d+/)?.[0];
+                throw new Error(`IP未授权访问微信API，请在微信公众平台添加IP白名单：${ip || '未知IP'}\n
+                操作步骤：
+                1. 登录微信公众平台(https://mp.weixin.qq.com/)
+                2. 进入"设置与开发" -> "基本配置"
+                3. 找到"IP白名单"设置
+                4. 添加当前IP地址
+                `);
+            }
+            throw new Error(`获取access_token失败: ${errorMsg}`);
+        }
+
+        if (!response.data.access_token) {
+            throw new Error('获取access_token失败: 返回数据中没有access_token');
+        }
+
+        console.log('成功获取微信access_token');
+        return response.data.access_token;
+    } catch (error) {
+        // 如果是 axios 网络错误
+        if (error.response) {
+            console.error('微信API响应错误:', error.response.data);
+            throw new Error(`微信API请求失败: ${error.response.data.errmsg || '未知错误'}`);
+        }
+        // 如果是其他错误，直接抛出
+        throw error;
+    }
+}
+
 // 修改创建草稿的部分
 app.post('/api/wechat/draft', async (req, res) => {
     try {
         const { article } = req.body;
-
-        // 从环境变量获取微信配置
-        const appId = process.env.WECHAT_APP_ID;
-        const appSecret = process.env.WECHAT_APP_SECRET;
-
-        if (!appId || !appSecret) {
-            throw new Error('未配置微信公众号 AppID 或 AppSecret');
-        }
 
         // 清理标题中的 emoji
         const cleanedTitle = cleanText(article.title);
@@ -1027,17 +1081,16 @@ app.post('/api/wechat/draft', async (req, res) => {
             }
         });
 
-        // 1. 获取 access_token
-        const tokenUrl = `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${appId}&secret=${appSecret}`;
-        const tokenResponse = await axios.get(tokenUrl);
-        const accessToken = tokenResponse.data.access_token;
+        // 获取 access_token
+        const accessToken = await getWechatAccessToken();
         console.log('获取到访问令牌:', accessToken);
 
-        // 2. 上传所有图片为永久素材
+        // 上传所有图片为永久素材
         const uploadedImages = [];
+        // 使用 for...of 循环确保按顺序处理图片
         for (const [index, image] of article.images.entries()) {
             try {
-                console.log(`开始上传第 ${index + 1} 张图片:`, image.url);
+                console.log(`开始上传第 ${index + 1}/${article.images.length} 张图片:`, image.url);
 
                 // 构建完整的图片 URL
                 const fullImageUrl = new URL(image.url, `${req.protocol}://${req.get('host')}`).href;
@@ -1048,13 +1101,14 @@ app.post('/api/wechat/draft', async (req, res) => {
                     method: 'get',
                     url: fullImageUrl,
                     responseType: 'arraybuffer',
+                    timeout: 30000,
                     headers: {
                         'Referer': 'https://www.xiaohongshu.com',
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                     }
                 });
 
-                // 使用 sharp 将图片转换为 jpg 格式
+                // 使用 sharp 将图片转换为 jpg 格式并压缩
                 const jpegBuffer = await sharp(imageResponse.data)
                     .jpeg({
                         quality: 80,
@@ -1062,7 +1116,7 @@ app.post('/api/wechat/draft', async (req, res) => {
                     })
                     .toBuffer();
 
-                console.log(`第 ${index + 1} 张图片大小:`, (jpegBuffer.length / 1024).toFixed(2) + 'KB');
+                console.log(`第 ${index + 1} 张图片处理完成，大小:`, (jpegBuffer.length / 1024).toFixed(2) + 'KB');
 
                 // 创建 FormData
                 const formData = new FormData();
@@ -1072,28 +1126,35 @@ app.post('/api/wechat/draft', async (req, res) => {
                 });
 
                 // 上传图片
-                const uploadResponse = await axios.post(
-                    `https://api.weixin.qq.com/cgi-bin/material/add_material?access_token=${accessToken}&type=image`,
-                    formData,
-                    {
-                        headers: {
-                            ...formData.getHeaders(),
-                            'Content-Length': formData.getLengthSync()
+                const uploadResponse = await retryOperation(async () => {
+                    const response = await axios.post(
+                        `https://api.weixin.qq.com/cgi-bin/material/add_material?access_token=${accessToken}&type=image`,
+                        formData,
+                        {
+                            headers: {
+                                ...formData.getHeaders(),
+                                'Content-Length': formData.getLengthSync()
+                            },
+                            timeout: 30000
                         }
+                    );
+
+                    if (response.data.errcode) {
+                        throw new Error(`上传图片失败: ${response.data.errmsg}`);
                     }
-                );
 
-                console.log(`第 ${index + 1} 张图片上传响应:`, uploadResponse.data);
+                    return response;
+                }, 3, 2000);
 
-                if (uploadResponse.data.errcode) {
-                    throw new Error(`上传图片失败: ${uploadResponse.data.errmsg}`);
-                }
+                console.log(`第 ${index + 1} 张图片上传成功:`, uploadResponse.data);
 
-                uploadedImages.push({
+                // 保存图片信息，包含原始索引
+                uploadedImages[index] = {
                     originalUrl: image.url,
                     mediaId: uploadResponse.data.media_id,
-                    url: uploadResponse.data.url
-                });
+                    url: uploadResponse.data.url,
+                    index: index
+                };
 
             } catch (error) {
                 console.error(`第 ${index + 1} 张图片处理失败:`, error);
@@ -1101,25 +1162,29 @@ app.post('/api/wechat/draft', async (req, res) => {
             }
         }
 
+        // 确保所有图片都上传成功
+        if (uploadedImages.length !== article.images.length) {
+            throw new Error('部分图片上传失败');
+        }
+
         // 3. 处理文章内容
         // 将纯文本内容转换为HTML格式，保留换行
         let content = article.content
-            .split('\n')  // 按换行符分割
+            .split('\n')
             .map(line => {
-                // 如果是空行，返回一个换行标签
                 if (!line.trim()) {
                     return '<p><br/></p>';
                 }
-                // 非空行，包装在段落标签中
                 return `<p>${line.trim()}</p>`;
             })
-            .join('');  // 连接所有行
+            .join('');
 
         // 在文本内容后面添加一个分隔空行
         content += '<p><br/></p>';
 
-        // 在文本内容后面添加图片，确保有分隔
+        // 按原始顺序添加图片
         const imagesHtml = uploadedImages
+            .sort((a, b) => a.index - b.index)  // 确保按原始顺序排序
             .map(image =>
                 `<p style="text-align: center;"><img src="${image.url}" data-width="100%" style="max-width:100%;"></p>`
             )
@@ -1133,11 +1198,10 @@ app.post('/api/wechat/draft', async (req, res) => {
             articles: [{
                 title: cleanedTitle,
                 author: '',
-                // 先清理 HTML 标签，再生成摘要
                 digest: stripHtml(article.content).slice(0, 120).replace(/\n/g, ' '),
                 content: content,
                 content_source_url: '',
-                thumb_media_id: uploadedImages[0].mediaId,
+                thumb_media_id: uploadedImages[0].mediaId,  // 使用第一张图片作为封面
                 need_open_comment: 1,
                 only_fans_can_comment: 0,
                 show_cover_pic: 1
@@ -1171,10 +1235,13 @@ app.post('/api/wechat/draft', async (req, res) => {
 
     } catch (error) {
         console.error('发布失败:', error);
+        // 返回更友好的错误信息
         res.status(500).json({
             success: false,
             message: error.message,
-            details: error.response?.data
+            details: error.response?.data,
+            // 如果是 IP 白名单错误，添加操作指引
+            guide: error.message.includes('IP未授权') ? '请按照提示在微信公众平台添加IP白名单' : undefined
         });
     }
 });
