@@ -5,8 +5,8 @@
   "main": "server/app.js",
   "scripts": {
     "start": "node server/app.js",
-    "build": "node scripts/generatePlaceholder.js && npm install puppeteer && npm install --include=optional sharp",
-    "dev": "nodemon server/app.js"
+    "dev": "nodemon server/app.js",
+    "build": "node scripts/generatePlaceholder.js"
   },
   "dependencies": {
     "axios": "^1.6.5",
@@ -23,6 +23,6 @@
     "nodemon": "^3.0.2"
   },
   "engines": {
-    "node": ">=18.0.0 <22.0.0"
+    "node": ">=18.0.0"
   }
 }
