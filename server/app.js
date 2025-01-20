@@ -1168,30 +1168,29 @@ app.post('/api/wechat/draft', async (req, res) => {
         }
 
         // 3. 处理文章内容
-        // 将纯文本内容转换为HTML格式，保留换行
-        let content = article.content
+        // 将纯文本内容转换为HTML格式，删除多余空行
+        let contentLines = article.content
             .split('\n')
-            .map(line => {
-                if (!line.trim()) {
-                    return '<p><br/></p>';
-                }
-                return `<p>${line.trim()}</p>`;
+            .map(line => line.trim())  // 先清理每行的空白
+            .filter(line => line);      // 只保留非空行
+
+        // 将处理后的文本转换为HTML段落
+        let content = contentLines
+            .map(line => `<p>${line}</p>`)
+            .join('');
+
+        // 按原始顺序添加图片，确保每张图片之间有空行
+        const imagesHtml = uploadedImages
+            .sort((a, b) => a.index - b.index)
+            .map((image, index) => {
+                // 对于最后一张图片，不添加额外的空行
+                const isLastImage = index === uploadedImages.length - 1;
+                return `<p style="text-align: center;"><img src="${image.url}" data-width="100%" style="max-width:100%;"></p>${isLastImage ? '' : '<p><br/></p>'}`;
             })
             .join('');
 
-        // 在文本内容后面添加一个分隔空行
-        content += '<p><br/></p>';
-
-        // 按原始顺序添加图片
-        const imagesHtml = uploadedImages
-            .sort((a, b) => a.index - b.index)  // 确保按原始顺序排序
-            .map(image =>
-                `<p style="text-align: center;"><img src="${image.url}" data-width="100%" style="max-width:100%;"></p>`
-            )
-            .join('');
-
-        // 组合最终的内容
-        content += imagesHtml;
+        // 组合最终的内容：文本 + 单个空行 + 图片
+        content = content + (content ? '<p><br/></p>' : '') + imagesHtml;
 
         // 4. 创建草稿
         const draftData = {
