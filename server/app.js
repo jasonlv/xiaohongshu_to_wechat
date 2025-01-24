@@ -1085,47 +1085,48 @@ app.post('/api/wechat/draft', async (req, res) => {
         const accessToken = await getWechatAccessToken();
         console.log('获取到访问令牌:', accessToken);
 
-        // 上传所有图片为永久素材
-        const uploadedImages = [];
-        // 使用 for...of 循环确保按顺序处理图片
-        for (const [index, image] of article.images.entries()) {
+        // 上传图片
+        const uploadedImages = new Array(article.images.length);
+
+        // 串行上传图片，避免并发导致的问题
+        for (let index = 0; index < article.images.length; index++) {
+            const image = article.images[index];
             try {
                 console.log(`开始上传第 ${index + 1}/${article.images.length} 张图片:`, image.url);
 
-                // 构建完整的图片 URL
-                const fullImageUrl = new URL(image.url, `${req.protocol}://${req.get('host')}`).href;
+                // 获取完整的图片URL
+                const fullImageUrl = image.url.startsWith('http') ? image.url : `${req.protocol}://${req.get('host')}${image.url}`;
                 console.log('完整图片URL:', fullImageUrl);
 
                 // 下载图片
-                const imageResponse = await axios({
-                    method: 'get',
-                    url: fullImageUrl,
+                const imageResponse = await axios.get(fullImageUrl, {
                     responseType: 'arraybuffer',
-                    timeout: 30000,
+                    timeout: 60000,  // 增加超时时间到60秒
                     headers: {
-                        'Referer': 'https://www.xiaohongshu.com',
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                     }
                 });
 
-                // 使用 sharp 将图片转换为 jpg 格式并压缩
-                const jpegBuffer = await sharp(imageResponse.data)
+                // 使用 sharp 处理图片
+                const processedImageBuffer = await sharp(imageResponse.data)
                     .jpeg({
                         quality: 80,
                         chromaSubsampling: '4:4:4'
                     })
                     .toBuffer();
 
-                console.log(`第 ${index + 1} 张图片处理完成，大小:`, (jpegBuffer.length / 1024).toFixed(2) + 'KB');
+                // 计算图片大小（KB）
+                const imageSizeKB = (processedImageBuffer.length / 1024).toFixed(2);
+                console.log(`第 ${index + 1} 张图片处理完成，大小: ${imageSizeKB}KB`);
 
-                // 创建 FormData
+                // 创建表单数据
                 const formData = new FormData();
-                formData.append('media', jpegBuffer, {
-                    filename: `image${index + 1}.jpg`,
+                formData.append('media', processedImageBuffer, {
+                    filename: `image_${index}.jpg`,
                     contentType: 'image/jpeg'
                 });
 
-                // 上传图片
+                // 上传图片到微信服务器
                 const uploadResponse = await retryOperation(async () => {
                     const response = await axios.post(
                         `https://api.weixin.qq.com/cgi-bin/material/add_material?access_token=${accessToken}&type=image`,
@@ -1135,7 +1136,9 @@ app.post('/api/wechat/draft', async (req, res) => {
                                 ...formData.getHeaders(),
                                 'Content-Length': formData.getLengthSync()
                             },
-                            timeout: 30000
+                            timeout: 60000,  // 增加超时时间到60秒
+                            maxBodyLength: Infinity,
+                            maxContentLength: Infinity
                         }
                     );
 
@@ -1144,11 +1147,11 @@ app.post('/api/wechat/draft', async (req, res) => {
                     }
 
                     return response;
-                }, 3, 2000);
+                }, 3, 5000);  // 增加重试间隔到5秒
 
                 console.log(`第 ${index + 1} 张图片上传成功:`, uploadResponse.data);
 
-                // 保存图片信息，包含原始索引
+                // 保存图片信息
                 uploadedImages[index] = {
                     originalUrl: image.url,
                     mediaId: uploadResponse.data.media_id,
@@ -1156,14 +1159,26 @@ app.post('/api/wechat/draft', async (req, res) => {
                     index: index
                 };
 
+                // 增加延迟到2秒
+                await new Promise(resolve => setTimeout(resolve, 2000));
+
             } catch (error) {
                 console.error(`第 ${index + 1} 张图片处理失败:`, error);
+
+                // 如果是网络错误，等待10秒后继续
+                if (error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT') {
+                    console.log('网络错误，等待10秒后重试...');
+                    await new Promise(resolve => setTimeout(resolve, 10000));
+                    index--; // 重试当前图片
+                    continue;
+                }
+
                 throw error;
             }
         }
 
         // 确保所有图片都上传成功
-        if (uploadedImages.length !== article.images.length) {
+        if (uploadedImages.some(img => !img)) {
             throw new Error('部分图片上传失败');
         }
 
@@ -1179,19 +1194,6 @@ app.post('/api/wechat/draft', async (req, res) => {
             .map(line => `<p>${line}</p>`)
             .join('');
 
-        // 按原始顺序添加图片，确保每张图片之间有空行
-        const imagesHtml = uploadedImages
-            .sort((a, b) => a.index - b.index)
-            .map((image, index) => {
-                // 对于最后一张图片，不添加额外的空行
-                const isLastImage = index === uploadedImages.length - 1;
-                return `<p style="text-align: center;"><img src="${image.url}" data-width="100%" style="max-width:100%;"></p>${isLastImage ? '' : '<p><br/></p>'}`;
-            })
-            .join('');
-
-        // 组合最终的内容：文本 + 单个空行 + 图片
-        content = content + (content ? '<p><br/></p>' : '') + imagesHtml;
-
         // 4. 创建草稿
         const draftData = {
             articles: [{
@@ -1200,18 +1202,44 @@ app.post('/api/wechat/draft', async (req, res) => {
                 digest: stripHtml(article.content).slice(0, 120).replace(/\n/g, ' '),
                 content: content,
                 content_source_url: '',
-                thumb_media_id: uploadedImages[0].mediaId,  // 使用第一张图片作为封面
+                thumb_media_id: uploadedImages[0].mediaId,
                 need_open_comment: 1,
                 only_fans_can_comment: 0,
-                show_cover_pic: 1
+                show_cover_pic: 1,
+                article_type: article.articleType || 'news'
             }]
         };
+
+        // 根据文章类型处理内容
+        if (article.articleType === 'newspic') {
+            // 图片消息类型
+            draftData.articles[0] = {
+                ...draftData.articles[0],
+                article_type: 'newspic',
+                content: '',  // 图片消息的文本内容
+                image_info: {
+                    image_list: uploadedImages.map(image => ({
+                        image_media_id: image.mediaId
+                    }))
+                }
+            };
+        } else {
+            // 图文消息类型，在内容后面添加图片
+            const imagesHtml = uploadedImages
+                .map((image, index) =>
+                    `<p style="text-align: center;"><img src="${image.url}" data-width="100%" style="max-width:100%;"></p>${index < uploadedImages.length - 1 ? '<p><br/></p>' : ''
+                    }`
+                )
+                .join('');
+
+            draftData.articles[0].content = content + (content ? '<p><br/></p>' : '') + imagesHtml;
+        }
 
         console.log('创建草稿请求数据:', {
             ...draftData,
             articles: [{
                 ...draftData.articles[0],
-                content: `(长度: ${content.length})`
+                content: `(长度: ${draftData.articles[0].content.length})`
             }]
         });
 

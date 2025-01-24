@@ -94,7 +94,8 @@ class WechatPublisher {
                         content: this.formatContent(article.content, article.images),
                         images: article.images,
                         author: '小红书笔记',
-                        digest: article.content.slice(0, 120) // 摘要
+                        digest: article.content.slice(0, 120), // 摘要
+                        articleType: article.articleType
                     }
                 })
             });
@@ -252,16 +253,15 @@ class App {
                     `).join('')}
                 </div>
                 
-                <div class="publish-options">
-                    <label class="option-item">
-                        <input type="checkbox" id="ignoreTopics" checked>
-                        忽略话题标签
-                    </label>
-                </div>
-                
                 <button id="publishButton" class="publish-btn">发布到公众号</button>
             </div>
         `;
+
+        // 显示发布选项
+        const publishOptions = document.getElementById('publishOptions');
+        if (publishOptions) {
+            publishOptions.style.display = 'block';
+        }
 
         const publishBtn = document.getElementById('publishButton');
         if (publishBtn) {
@@ -279,12 +279,17 @@ class App {
             showStatus('正在发布到公众号，请稍候...', STATUS_TYPES.LOADING);
             const baseUrl = window.location.origin;
 
+            // 获取文章类型
+            const articleType = document.getElementById('articleType')?.value || 'news';
+            const ignoreTopics = document.getElementById('ignoreTopics')?.checked;
+
             const processedNote = {
                 ...note,
                 images: note.images.map(img => ({
                     ...img,
                     url: img.url.startsWith('http') ? img.url : `${baseUrl}${img.url}`
-                }))
+                })),
+                articleType // 添加文章类型
             };
 
             await this.publisher.createDraft(processedNote);

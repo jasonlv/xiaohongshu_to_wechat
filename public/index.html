@@ -20,6 +20,23 @@
         <!-- 笔记预览区域 -->
         <div id="noteDetail" class="note-detail-container"></div>
 
+        <!-- 发布选项 -->
+        <div class="publish-options" style="display: none;" id="publishOptions">
+            <div class="option-item">
+                <label>文章类型：</label>
+                <select id="articleType">
+                    <option value="news">图文消息</option>
+                    <option value="newspic">图片消息</option>
+                </select>
+            </div>
+            <div class="option-item">
+                <label>
+                    <input type="checkbox" id="ignoreTopics" checked>
+                    忽略话题标签
+                </label>
+            </div>
+        </div>
+
         <!-- 状态栏 -->
         <div id="statusBar" class="status-bar"></div>
     </div>
